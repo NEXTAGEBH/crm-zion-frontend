@@ -1,69 +1,40 @@
-import Image from "next/image";
+import { Users, MessageCircle, TrendingUp, Clock } from 'lucide-react';
 
-export default function Home() {
+export default function DashboardPage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div>
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-slate-800">Dashboard</h1>
+        <p className="text-slate-500 text-sm mt-1">Resumo da sua operação comercial hoje.</p>
+      </div>
+
+      {/* Grid de Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        {[
+          { title: 'Novos Contatos', value: '24', icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { title: 'Conversas Abertas', value: '18', icon: MessageCircle, color: 'text-emerald-600', bg: 'bg-emerald-50' },
+          { title: 'Conversão Funil', value: '32%', icon: TrendingUp, color: 'text-violet-600', bg: 'bg-violet-50' },
+          { title: 'Tempo de Resposta', value: '4m 12s', icon: Clock, color: 'text-amber-600', bg: 'bg-amber-50' },
+        ].map((card) => (
+          <div key={card.title} className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm flex items-center gap-4">
+            <div className={`p-3 rounded-lg ${card.bg}`}>
+              <card.icon size={24} className={card.color} />
+            </div>
+            <div>
+              <p className="text-sm text-slate-500 font-medium">{card.title}</p>
+              <p className="text-2xl font-bold text-slate-800 mt-1">{card.value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Espaço para os Gráficos */}
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+        <h2 className="text-lg font-bold text-slate-800 mb-4">Leads por Dia</h2>
+        <div className="h-64 flex items-center justify-center text-slate-400 border border-dashed border-slate-200 rounded-lg">
+          Os gráficos aparecerão aqui quando conectarmos o backend!
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </div>
     </div>
   );
 }
