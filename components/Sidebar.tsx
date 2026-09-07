@@ -1,13 +1,20 @@
 "use client";
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { 
   LayoutDashboard, MessageCircle, Users, GitBranchPlus, Clock, 
   Zap, BookOpen, Megaphone, BarChart3, Settings, LogOut, CircleDot, ShieldCheck 
 } from 'lucide-react';
+import { createClient } from '@supabase/supabase-js';
 
-// Simulação: Se for true, você vê o botão de Admin. Se for false, some.
+// Configuração do Supabase
+const supabase = createClient(
+  'https://hbqgwyrnpqkoyufznbta.supabase.co',
+  'sb_publishable_DUQyEAGUow_ytseKpPUmHQ_L2qETeoh'
+);
+
+// Simulação de Admin (troque para false para ver como o cliente vê)
 const isZionAdmin = true; 
 
 const menuItems = [
@@ -25,6 +32,20 @@ const menuItems = [
 
 export const Sidebar = () => {
   const pathname = usePathname();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    // 1. Desloga do Supabase Auth
+    await supabase.auth.signOut();
+    
+    // 2. Limpa os dados da empresa salvos no navegador
+    localStorage.removeItem('companyId');
+    localStorage.removeItem('userRole');
+    localStorage.removeItem('userName');
+    
+    // 3. Redireciona para a tela de Login
+    router.push('/login');
+  };
 
   return (
     <aside className="w-64 min-h-screen bg-white border-r border-slate-200 flex flex-col justify-between p-4 fixed top-0 left-0 z-50">
@@ -69,7 +90,8 @@ export const Sidebar = () => {
             <p className="text-sm font-semibold text-slate-800 truncate">Zion Admin</p>
             <p className="text-xs text-slate-500 truncate">empresa@zion.com</p>
           </div>
-          <LogOut size={16} className="text-slate-400 cursor-pointer hover:text-red-500 transition-colors" />
+          {/* Botão de Sair (Logout) */}
+          <LogOut size={16} className="text-slate-400 cursor-pointer hover:text-red-500 transition-colors" onClick={handleLogout} />
         </div>
         <div className="px-2 flex items-center gap-2 text-xs">
           <CircleDot size={14} className="text-emerald-500 fill-emerald-500" />

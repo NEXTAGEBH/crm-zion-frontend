@@ -8,7 +8,6 @@ export default function DashboardPage() {
         <p className="text-slate-500 text-sm mt-1">Resumo da sua operação comercial hoje.</p>
       </div>
 
-      {/* Grid de Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {[
           { title: 'Novos Contatos', value: '24', icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
@@ -26,14 +25,6 @@ export default function DashboardPage() {
             </div>
           </div>
         ))}
-      </div>
-
-      {/* Espaço para os Gráficos */}
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-800 mb-4">Leads por Dia</h2>
-        <div className="h-64 flex items-center justify-center text-slate-400 border border-dashed border-slate-200 rounded-lg">
-          Os gráficos aparecerão aqui quando conectarmos o backend!
-        </div>
       </div>
     </div>
   );
