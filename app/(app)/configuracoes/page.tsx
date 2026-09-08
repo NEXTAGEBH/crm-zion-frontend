@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import type { LucideIcon } from "lucide-react";
 
 import {
   Building2,
@@ -20,6 +19,8 @@ import {
   XCircle,
   UserPlus,
   Trash2,
+  Ban,
+  ShieldCheck,
   X,
   KeyRound,
   Eye,
@@ -49,21 +50,11 @@ type TeamApiResponse = {
   };
 
   currentUserId?: string;
+
   users?: TeamUser[];
 };
 
-type ConfigAction =
-  | "team"
-  | "funnel";
-
-type ConfigCategory = {
-  icon: LucideIcon;
-  titulo: string;
-  desc: string;
-  action?: ConfigAction;
-};
-
-const categoriasConfig: ConfigCategory[] = [
+const categoriasConfig = [
   {
     icon: Building2,
     titulo: "Empresa",
@@ -85,6 +76,12 @@ const categoriasConfig: ConfigCategory[] = [
     titulo: "Funil de Vendas",
     desc: "Personalize as etapas do funil, crie novas colunas.",
     action: "funnel",
+  },
+  {
+    icon: GitBranchPlus,
+    titulo: "Distribuição de Leads",
+    desc: "Configure o rodízio automático de novos leads entre os membros da equipe.",
+    action: "distribution",
   },
   {
     icon: Tag,
@@ -121,8 +118,7 @@ const categoriasConfig: ConfigCategory[] = [
 async function lerResposta(
   response: Response
 ): Promise<TeamApiResponse> {
-  const texto =
-    await response.text();
+  const texto = await response.text();
 
   if (!texto) {
     return {};
@@ -141,9 +137,7 @@ async function lerResposta(
 }
 
 export default function ConfiguracoesPage() {
-  const router =
-    useRouter();
-
+    const router = useRouter();
   const [
     whatsappConectado,
     setWhatsappConectado,
@@ -157,9 +151,7 @@ export default function ConfiguracoesPage() {
   const [
     teamUsers,
     setTeamUsers,
-  ] = useState<TeamUser[]>(
-    []
-  );
+  ] = useState<TeamUser[]>([]);
 
   const [
     teamLoading,
@@ -169,16 +161,12 @@ export default function ConfiguracoesPage() {
   const [
     teamMessage,
     setTeamMessage,
-  ] = useState<
-    string | null
-  >(null);
+  ] = useState<string | null>(null);
 
   const [
     currentUserId,
     setCurrentUserId,
-  ] = useState<
-    string | null
-  >(null);
+  ] = useState<string | null>(null);
 
   const [
     companyName,
@@ -222,9 +210,9 @@ export default function ConfiguracoesPage() {
   const [
     passwordUser,
     setPasswordUser,
-  ] = useState<
-    TeamUser | null
-  >(null);
+  ] = useState<TeamUser | null>(
+    null
+  );
 
   const [
     resetPassword,
@@ -249,9 +237,7 @@ export default function ConfiguracoesPage() {
   const pegarToken =
     async () => {
       const {
-        data: {
-          session,
-        },
+        data: { session },
         error,
       } =
         await supabase.auth.getSession();
@@ -338,10 +324,7 @@ export default function ConfiguracoesPage() {
   const abrirEquipe =
     async () => {
       if (equipeAberta) {
-        setEquipeAberta(
-          false
-        );
-
+        setEquipeAberta(false);
         return;
       }
 
@@ -355,8 +338,10 @@ export default function ConfiguracoesPage() {
             "equipe"
           )
           ?.scrollIntoView({
-            behavior: "smooth",
-            block: "start",
+            behavior:
+              "smooth",
+            block:
+              "start",
           });
       }, 100);
     };
@@ -443,7 +428,6 @@ export default function ConfiguracoesPage() {
         setNewUserName("");
         setNewUserEmail("");
         setNewUserPassword("");
-
         setNewUserRole(
           "atendente"
         );
@@ -766,7 +750,9 @@ export default function ConfiguracoesPage() {
       }
 
       setPasswordUser(user);
+
       setResetPassword("");
+
       setConfirmResetPassword(
         ""
       );
@@ -785,7 +771,9 @@ export default function ConfiguracoesPage() {
       }
 
       setPasswordUser(null);
+
       setResetPassword("");
+
       setConfirmResetPassword(
         ""
       );
@@ -911,42 +899,19 @@ export default function ConfiguracoesPage() {
     role: string
   ) => {
     if (
-      role ===
-      "zion_admin"
+      role === "zion_admin"
     ) {
       return "Administrador Zion";
     }
 
     if (
-      role ===
-      "admin"
+      role === "admin"
     ) {
       return "Administrador";
     }
 
     return "Atendente";
   };
-
-  const executarAcaoCategoria =
-    (
-      action?: ConfigAction
-    ) => {
-      if (
-        action === "team"
-      ) {
-        abrirEquipe();
-
-        return;
-      }
-
-      if (
-        action === "funnel"
-      ) {
-        router.push(
-          "/configuracoes/funil"
-        );
-      }
-    };
 
   return (
     <div className="max-w-6xl">
@@ -960,7 +925,7 @@ export default function ConfiguracoesPage() {
         </p>
       </div>
 
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-8 flex items-center justify-between gap-6">
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-8 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="p-3 rounded-lg bg-emerald-50">
             <MessageCircle
@@ -1023,27 +988,45 @@ export default function ConfiguracoesPage() {
             cat,
             index
           ) => {
-            const possuiAcao =
-              Boolean(
-                cat.action
-              );
-
             const gerenciaEquipe =
-              cat.action ===
-              "team";
+  cat.action ===
+  "team";
+
+const gerenciaFunil =
+  cat.action ===
+  "funnel";
+
+const gerenciaDistribuicao =
+  cat.action ===
+  "distribution";
+
+const possuiAcao =
+  gerenciaEquipe ||
+  gerenciaFunil ||
+  gerenciaDistribuicao;
 
             return (
               <div
                 key={index}
-                onClick={() =>
-                  executarAcaoCategoria(
-                    cat.action
-                  )
+                onClick={
+  gerenciaEquipe
+    ? abrirEquipe
+    : gerenciaFunil
+    ? () =>
+        router.push(
+          "/configuracoes/funil"
+        )
+    : gerenciaDistribuicao
+    ? () =>
+        router.push(
+          "/configuracoes/distribuicao"
+        )
+    : undefined
                 }
                 className={`bg-white p-5 rounded-xl border shadow-sm flex items-center gap-4 transition-all group ${
                   possuiAcao
-                    ? "cursor-pointer hover:shadow-md hover:border-blue-300"
-                    : "border-slate-200"
+  ? "cursor-pointer hover:shadow-md hover:border-blue-300"
+  : "border-slate-200"
                 } ${
                   equipeAberta &&
                   gerenciaEquipe
@@ -1053,17 +1036,17 @@ export default function ConfiguracoesPage() {
               >
                 <div
                   className={`p-2.5 rounded-lg transition-colors ${
-                    possuiAcao
-                      ? "bg-blue-50"
-                      : "bg-slate-100"
+  possuiAcao
+    ? "bg-blue-50"
+    : "bg-slate-100"
                   }`}
                 >
                   <cat.icon
                     size={20}
                     className={
-                      possuiAcao
-                        ? "text-blue-600"
-                        : "text-slate-500"
+  possuiAcao
+    ? "text-blue-600"
+    : "text-slate-500"
                     }
                   />
                 </div>
@@ -1072,8 +1055,9 @@ export default function ConfiguracoesPage() {
                   <h3
                     className={`font-semibold text-sm ${
                       possuiAcao
-                        ? "text-blue-700"
-                        : "text-slate-800"
+  ? "text-blue-700"
+  : "text-slate-800"
+
                     }`}
                   >
                     {cat.titulo}
@@ -1085,16 +1069,16 @@ export default function ConfiguracoesPage() {
                 </div>
 
                 {possuiAcao && (
-                  <ChevronRight
-                    size={18}
-                    className={`text-blue-500 transition-transform ${
-                      equipeAberta &&
-                      gerenciaEquipe
-                        ? "rotate-90"
-                        : ""
-                    }`}
-                  />
-                )}
+  <ChevronRight
+    size={18}
+    className={`text-blue-500 transition-transform ${
+      equipeAberta &&
+      gerenciaEquipe
+        ? "rotate-90"
+        : ""
+    }`}
+  />
+)}
               </div>
             );
           }
@@ -1136,7 +1120,9 @@ export default function ConfiguracoesPage() {
               }
               className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
             >
-              <X size={20} />
+              <X
+                size={20}
+              />
             </button>
           </div>
 
@@ -1322,7 +1308,8 @@ export default function ConfiguracoesPage() {
                             onChange={(e) =>
                               alterarRole(
                                 user,
-                                e.target
+                                e
+                                  .target
                                   .value as
                                   | "admin"
                                   | "atendente"
@@ -1450,7 +1437,9 @@ export default function ConfiguracoesPage() {
                 }
                 className="p-2 text-slate-400 hover:bg-slate-100 rounded-lg"
               >
-                <X size={19} />
+                <X
+                  size={19}
+                />
               </button>
             </div>
 
