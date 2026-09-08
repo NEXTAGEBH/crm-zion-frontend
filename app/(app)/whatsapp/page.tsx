@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  FormEvent,
+  KeyboardEvent,
   useCallback,
   useEffect,
   useMemo,
@@ -42,7 +44,6 @@ type Conversation = {
   lastMessageAt: string | null;
   createdAt: string;
   updatedAt: string;
-
   contact: Contact | null;
   lastMessage: Message | null;
 };
@@ -61,7 +62,6 @@ type ConversationDetail = {
   };
 
   contact: Contact;
-
   messages: Message[];
 };
 
@@ -321,7 +321,7 @@ function conteudoMensagem(
     return "Figurinha recebida";
   }
 
-  return "Mensagem recebida";
+  return "Mensagem";
 }
 
 function statusMensagem(
@@ -329,16 +329,9 @@ function statusMensagem(
 ) {
   if (
     status ===
-    "read"
+    "pending"
   ) {
-    return "Lida";
-  }
-
-  if (
-    status ===
-    "delivered"
-  ) {
-    return "Entregue";
+    return "Enviando";
   }
 
   if (
@@ -350,19 +343,26 @@ function statusMensagem(
 
   if (
     status ===
+    "delivered"
+  ) {
+    return "Entregue";
+  }
+
+  if (
+    status ===
+    "read"
+  ) {
+    return "Lida";
+  }
+
+  if (
+    status ===
     "failed"
   ) {
     return "Falhou";
   }
 
-  if (
-    status ===
-    "received"
-  ) {
-    return "";
-  }
-
-  return status;
+  return "";
 }
 
 export default function WhatsAppPage() {
@@ -402,11 +402,18 @@ export default function WhatsAppPage() {
   );
 
   const [
-    error,
-    setError,
-  ] = useState<
-    string | null
-  >(null);
+    refreshing,
+    setRefreshing,
+  ] = useState(
+    false
+  );
+
+  const [
+    sending,
+    setSending,
+  ] = useState(
+    false
+  );
 
   const [
     search,
@@ -414,14 +421,31 @@ export default function WhatsAppPage() {
   ] = useState("");
 
   const [
-    refreshing,
-    setRefreshing,
-  ] = useState(
-    false
-  );
+    messageText,
+    setMessageText,
+  ] = useState("");
+
+  const [
+    error,
+    setError,
+  ] = useState<
+    string | null
+  >(null);
+
+  const [
+    success,
+    setSuccess,
+  ] = useState<
+    string | null
+  >(null);
 
   const messagesEndRef =
     useRef<HTMLDivElement | null>(
+      null
+    );
+
+  const textareaRef =
+    useRef<HTMLTextAreaElement | null>(
       null
     );
 
@@ -530,10 +554,6 @@ export default function WhatsAppPage() {
             lista
           );
 
-          setError(
-            null
-          );
-
           if (
             lista.length >
               0 &&
@@ -629,11 +649,7 @@ export default function WhatsAppPage() {
               )
           );
         } catch {
-          /*
-           * Falha ao marcar como
-           * lida não deve impedir
-           * a abertura da conversa.
-           */
+          return;
         }
       },
       [
@@ -666,9 +682,6 @@ export default function WhatsAppPage() {
                 conversationId
               )}`,
               {
-                method:
-                  "GET",
-
                 headers: {
                   Authorization:
                     `Bearer ${token}`,
@@ -700,10 +713,6 @@ export default function WhatsAppPage() {
 
           setDetail(
             data as ConversationDetail
-          );
-
-          setError(
-            null
           );
 
           if (
@@ -744,6 +753,162 @@ export default function WhatsAppPage() {
       ]
     );
 
+  const enviarMensagem =
+    useCallback(
+      async () => {
+        const conversationId =
+          selectedIdRef.current;
+
+        const text =
+          messageText.trim();
+
+        if (
+          !conversationId ||
+          !text ||
+          sending
+        ) {
+          return;
+        }
+
+        try {
+          setSending(
+            true
+          );
+
+          setError(
+            null
+          );
+
+          setSuccess(
+            null
+          );
+
+          const token =
+            await pegarToken();
+
+          const response =
+            await fetch(
+              "/api/whatsapp/messages",
+              {
+                method:
+                  "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+
+                  Authorization:
+                    `Bearer ${token}`,
+                },
+
+                body:
+                  JSON.stringify(
+                    {
+                      conversationId,
+                      text,
+                    }
+                  ),
+              }
+            );
+
+          const data =
+            await response.json();
+
+          if (
+            !response.ok
+          ) {
+            const metaCode =
+              data.metaCode
+                ? ` Código Meta: ${data.metaCode}.`
+                : "";
+
+            throw new Error(
+              `${
+                data.error ||
+                "Não foi possível enviar a mensagem."
+              }${metaCode}`
+            );
+          }
+
+          setMessageText(
+            ""
+          );
+
+          setSuccess(
+            "Mensagem enviada."
+          );
+
+          await carregarDetalhe(
+            conversationId,
+            false,
+            false
+          );
+
+          await carregarLista();
+
+          window.setTimeout(
+            () => {
+              setSuccess(
+                null
+              );
+            },
+            2000
+          );
+
+          window.setTimeout(
+            () => {
+              textareaRef.current
+                ?.focus();
+            },
+            50
+          );
+        } catch (
+          err
+        ) {
+          setError(
+            err instanceof
+              Error
+              ? err.message
+              : "Erro ao enviar mensagem."
+          );
+        } finally {
+          setSending(
+            false
+          );
+        }
+      },
+      [
+        carregarDetalhe,
+        carregarLista,
+        messageText,
+        pegarToken,
+        sending,
+      ]
+    );
+
+  const handleSubmit = (
+    event: FormEvent
+  ) => {
+    event.preventDefault();
+
+    void enviarMensagem();
+  };
+
+  const handleKeyDown = (
+    event:
+      KeyboardEvent<HTMLTextAreaElement>
+  ) => {
+    if (
+      event.key ===
+        "Enter" &&
+      !event.shiftKey
+    ) {
+      event.preventDefault();
+
+      void enviarMensagem();
+    }
+  };
+
   useEffect(
     () => {
       void carregarLista();
@@ -755,9 +920,7 @@ export default function WhatsAppPage() {
 
   useEffect(
     () => {
-      if (
-        !selectedId
-      ) {
+      if (!selectedId) {
         setDetail(
           null
         );
@@ -767,6 +930,10 @@ export default function WhatsAppPage() {
 
       setDetail(
         null
+      );
+
+      setMessageText(
+        ""
       );
 
       void carregarDetalhe(
@@ -781,14 +948,6 @@ export default function WhatsAppPage() {
     ]
   );
 
-  /*
-   * Atualização periódica da
-   * caixa de entrada.
-   *
-   * Nesta primeira versão usamos
-   * polling. Depois podemos migrar
-   * para Supabase Realtime.
-   */
   useEffect(
     () => {
       const interval =
@@ -808,7 +967,8 @@ export default function WhatsAppPage() {
               selectedIdRef.current;
 
             if (
-              currentId
+              currentId &&
+              !sending
             ) {
               void carregarDetalhe(
                 currentId,
@@ -829,6 +989,7 @@ export default function WhatsAppPage() {
     [
       carregarDetalhe,
       carregarLista,
+      sending,
     ]
   );
 
@@ -937,7 +1098,6 @@ export default function WhatsAppPage() {
 
   return (
     <div className="flex h-[calc(100vh-2rem)] min-h-[650px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      {/* LISTA DE CONVERSAS */}
       <section className="flex w-[380px] min-w-[320px] flex-col border-r border-slate-200">
         <div className="border-b border-slate-200 px-5 pb-4 pt-5">
           <div className="mb-4 flex items-start justify-between gap-4">
@@ -978,7 +1138,7 @@ export default function WhatsAppPage() {
               disabled={
                 refreshing
               }
-              className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
             >
               {refreshing
                 ? "Atualizando..."
@@ -986,24 +1146,20 @@ export default function WhatsAppPage() {
             </button>
           </div>
 
-          <div className="relative">
-            <input
-              value={
-                search
-              }
-              onChange={(
-                event
-              ) =>
-                setSearch(
-                  event
-                    .target
-                    .value
-                )
-              }
-              placeholder="Buscar conversa..."
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:bg-white"
-            />
-          </div>
+          <input
+            value={
+              search
+            }
+            onChange={(
+              event
+            ) =>
+              setSearch(
+                event.target.value
+              )
+            }
+            placeholder="Buscar conversa..."
+            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:bg-white"
+          />
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -1017,13 +1173,6 @@ export default function WhatsAppPage() {
 
                 <p className="text-sm font-medium text-slate-700">
                   Nenhuma conversa
-                </p>
-
-                <p className="mt-1 text-xs leading-5 text-slate-400">
-                  Quando uma
-                  mensagem chegar
-                  pelo WhatsApp ela
-                  aparecerá aqui.
                 </p>
               </div>
             </div>
@@ -1088,14 +1237,7 @@ export default function WhatsAppPage() {
                             "Contato"}
                         </p>
 
-                        <span
-                          className={`shrink-0 text-[11px] ${
-                            unread >
-                            0
-                              ? "font-medium text-slate-900"
-                              : "text-slate-400"
-                          }`}
-                        >
+                        <span className="shrink-0 text-[11px] text-slate-400">
                           {formatarHorario(
                             conversation.lastMessageAt ||
                               conversation
@@ -1110,14 +1252,7 @@ export default function WhatsAppPage() {
                       </div>
 
                       <div className="mt-1 flex items-center justify-between gap-2">
-                        <p
-                          className={`truncate text-xs ${
-                            unread >
-                            0
-                              ? "font-medium text-slate-700"
-                              : "text-slate-400"
-                          }`}
-                        >
+                        <p className="truncate text-xs text-slate-500">
                           {conversation
                             .lastMessage
                             ?.direction ===
@@ -1148,47 +1283,26 @@ export default function WhatsAppPage() {
         </div>
       </section>
 
-      {/* CONVERSA */}
       <section className="flex min-w-0 flex-1 flex-col bg-slate-50">
         {!selectedId ? (
-          <div className="flex h-full items-center justify-center p-8">
-            <div className="max-w-sm text-center">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-white text-2xl shadow-sm">
-                💬
-              </div>
-
-              <h2 className="text-lg font-semibold text-slate-900">
-                Caixa de entrada
-                do WhatsApp
-              </h2>
-
-              <p className="mt-2 text-sm leading-6 text-slate-500">
-                Selecione uma
-                conversa para
-                visualizar o
-                histórico de
-                mensagens.
-              </p>
-            </div>
+          <div className="flex h-full items-center justify-center">
+            <p className="text-sm text-slate-500">
+              Selecione uma
+              conversa.
+            </p>
           </div>
         ) : loadingDetail &&
           !detail ? (
           <div className="flex h-full items-center justify-center">
-            <div className="text-center">
-              <div className="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-slate-900" />
-
-              <p className="text-sm text-slate-500">
-                Abrindo
-                conversa...
-              </p>
-            </div>
+            <p className="text-sm text-slate-500">
+              Abrindo conversa...
+            </p>
           </div>
         ) : detail ? (
           <>
-            {/* CABEÇALHO */}
             <div className="flex h-[76px] shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold uppercase text-slate-600">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold uppercase text-slate-600">
                   {detail.contact.name
                     ?.trim()
                     ?.charAt(
@@ -1197,15 +1311,14 @@ export default function WhatsAppPage() {
                     "?"}
                 </div>
 
-                <div className="min-w-0">
-                  <h2 className="truncate text-sm font-semibold text-slate-900">
+                <div>
+                  <h2 className="text-sm font-semibold text-slate-900">
                     {detail
                       .contact
-                      .name ||
-                      "Contato"}
+                      .name}
                   </h2>
 
-                  <p className="mt-0.5 truncate text-xs text-slate-500">
+                  <p className="mt-0.5 text-xs text-slate-500">
                     {detail
                       .contact
                       .phone}
@@ -1213,136 +1326,113 @@ export default function WhatsAppPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500">
-                  {detail
-                    .contact
-                    .responsibleId
-                    ? "Lead atribuído"
-                    : "Sem responsável"}
-                </span>
-
-                <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500">
-                  WhatsApp
-                </span>
-              </div>
+              <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500">
+                WhatsApp
+              </span>
             </div>
 
-            {/* MENSAGENS */}
             <div className="flex-1 overflow-y-auto px-5 py-6">
               <div className="mx-auto flex max-w-4xl flex-col gap-2">
-                {detail.messages.length ===
-                0 ? (
-                  <div className="py-20 text-center">
-                    <p className="text-sm text-slate-400">
-                      Nenhuma
-                      mensagem nesta
-                      conversa.
-                    </p>
-                  </div>
-                ) : (
-                  detail.messages.map(
-                    (
-                      message,
-                      index
-                    ) => {
-                      const anterior =
-                        detail
-                          .messages[
-                          index -
-                            1
-                        ];
+                {detail.messages.map(
+                  (
+                    message,
+                    index
+                  ) => {
+                    const anterior =
+                      detail.messages[
+                        index -
+                          1
+                      ];
 
-                      const dataAtual =
-                        message.messageTimestamp ||
-                        message.createdAt;
+                    const dataAtual =
+                      message.messageTimestamp ||
+                      message.createdAt;
 
-                      const dataAnterior =
-                        anterior
-                          ? anterior.messageTimestamp ||
-                            anterior.createdAt
-                          : null;
+                    const dataAnterior =
+                      anterior
+                        ? anterior.messageTimestamp ||
+                          anterior.createdAt
+                        : null;
 
-                      const mostrarData =
-                        !anterior ||
+                    const mostrarData =
+                      !anterior ||
+                      formatarDiaMensagem(
+                        dataAtual
+                      ) !==
                         formatarDiaMensagem(
-                          dataAtual
-                        ) !==
-                          formatarDiaMensagem(
-                            dataAnterior
-                          );
+                          dataAnterior
+                        );
 
-                      const outbound =
-                        message.direction ===
-                        "outbound";
+                    const outbound =
+                      message.direction ===
+                      "outbound";
 
-                      return (
+                    return (
+                      <div
+                        key={
+                          message.id
+                        }
+                      >
+                        {mostrarData && (
+                          <div className="my-5 flex justify-center">
+                            <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-medium text-slate-500 shadow-sm">
+                              {formatarDiaMensagem(
+                                dataAtual
+                              )}
+                            </span>
+                          </div>
+                        )}
+
                         <div
-                          key={
-                            message.id
-                          }
+                          className={`mb-2 flex ${
+                            outbound
+                              ? "justify-end"
+                              : "justify-start"
+                          }`}
                         >
-                          {mostrarData && (
-                            <div className="my-5 flex justify-center">
-                              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-medium text-slate-500 shadow-sm">
-                                {formatarDiaMensagem(
-                                  dataAtual
-                                )}
-                              </span>
-                            </div>
-                          )}
-
                           <div
-                            className={`mb-2 flex ${
+                            className={`max-w-[72%] rounded-2xl px-3.5 py-2.5 shadow-sm ${
                               outbound
-                                ? "justify-end"
-                                : "justify-start"
+                                ? "rounded-br-md bg-slate-900 text-white"
+                                : "rounded-bl-md border border-slate-200 bg-white text-slate-800"
                             }`}
                           >
+                            <p className="whitespace-pre-wrap break-words text-sm leading-5">
+                              {conteudoMensagem(
+                                message
+                              )}
+                            </p>
+
                             <div
-                              className={`max-w-[72%] rounded-2xl px-3.5 py-2.5 shadow-sm ${
+                              className={`mt-1.5 flex items-center justify-end gap-1.5 text-[10px] ${
                                 outbound
-                                  ? "rounded-br-md bg-slate-900 text-white"
-                                  : "rounded-bl-md border border-slate-200 bg-white text-slate-800"
+                                  ? "text-slate-300"
+                                  : "text-slate-400"
                               }`}
                             >
-                              <p className="whitespace-pre-wrap break-words text-sm leading-5">
-                                {conteudoMensagem(
-                                  message
+                              <span>
+                                {formatarHorarioMensagem(
+                                  message.messageTimestamp ||
+                                    message.createdAt
                                 )}
-                              </p>
+                              </span>
 
-                              <div
-                                className={`mt-1.5 flex items-center justify-end gap-1.5 text-[10px] ${
-                                  outbound
-                                    ? "text-slate-300"
-                                    : "text-slate-400"
-                                }`}
-                              >
-                                <span>
-                                  {formatarHorarioMensagem(
-                                    message.messageTimestamp ||
-                                      message.createdAt
-                                  )}
-                                </span>
-
-                                {outbound &&
-                                  statusMensagem(
-                                    message.status
-                                  ) && (
-                                    <span>
-                                      {statusMensagem(
-                                        message.status
-                                      )}
-                                    </span>
-                                  )}
-                              </div>
+                              {outbound &&
+                                statusMensagem(
+                                  message.status
+                                ) && (
+                                  <span>
+                                    {statusMensagem(
+                                      message.status
+                                    )}
+                                  </span>
+                                )}
                             </div>
                           </div>
                         </div>
-                      );
-                    }
-                  )
+                      </div>
+                    );
+                  }
                 )}
 
                 <div
@@ -1353,43 +1443,104 @@ export default function WhatsAppPage() {
               </div>
             </div>
 
-            {/* COMPOSER */}
-            <div className="shrink-0 border-t border-slate-200 bg-white p-4">
-              <div className="mx-auto flex max-w-4xl items-center gap-3">
-                <div className="flex-1">
-                  <input
-                    disabled
-                    placeholder="O envio de mensagens será habilitado na próxima etapa."
-                    className="w-full cursor-not-allowed rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-500 outline-none placeholder:text-slate-400"
-                  />
-                </div>
+            <form
+              onSubmit={
+                handleSubmit
+              }
+              className="shrink-0 border-t border-slate-200 bg-white p-4"
+            >
+              <div className="mx-auto flex max-w-4xl items-end gap-3">
+                <textarea
+                  ref={
+                    textareaRef
+                  }
+                  value={
+                    messageText
+                  }
+                  onChange={(
+                    event
+                  ) =>
+                    setMessageText(
+                      event
+                        .target
+                        .value
+                    )
+                  }
+                  onKeyDown={
+                    handleKeyDown
+                  }
+                  disabled={
+                    sending
+                  }
+                  maxLength={
+                    4096
+                  }
+                  rows={
+                    1
+                  }
+                  placeholder="Digite uma mensagem..."
+                  className="max-h-32 min-h-[46px] flex-1 resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 disabled:bg-slate-50"
+                />
 
                 <button
-                  type="button"
-                  disabled
-                  className="cursor-not-allowed rounded-xl bg-slate-300 px-5 py-3 text-sm font-semibold text-white"
+                  type="submit"
+                  disabled={
+                    sending ||
+                    !messageText.trim()
+                  }
+                  className="h-[46px] rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
-                  Enviar
+                  {sending
+                    ? "Enviando..."
+                    : "Enviar"}
                 </button>
               </div>
-            </div>
+
+              <div className="mx-auto mt-2 flex max-w-4xl justify-between px-1">
+                <p className="text-[10px] text-slate-400">
+                  Enter para enviar.
+                  Shift + Enter para
+                  quebrar linha.
+                </p>
+
+                <p className="text-[10px] text-slate-400">
+                  {
+                    messageText.length
+                  }
+                  /4096
+                </p>
+              </div>
+            </form>
           </>
-        ) : (
-          <div className="flex h-full items-center justify-center p-8">
-            <div className="text-center">
-              <p className="text-sm font-medium text-slate-700">
-                Não foi possível
-                abrir a conversa.
-              </p>
-            </div>
-          </div>
-        )}
+        ) : null}
       </section>
 
       {error && (
         <div className="fixed bottom-5 right-5 z-50 max-w-md rounded-xl border border-red-200 bg-white px-4 py-3 shadow-lg">
-          <p className="text-sm font-medium text-red-700">
-            {error}
+          <div className="flex items-start gap-3">
+            <p className="flex-1 text-sm font-medium text-red-700">
+              {error}
+            </p>
+
+            <button
+              type="button"
+              onClick={() =>
+                setError(
+                  null
+                )
+              }
+              className="text-xs text-slate-400"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {success && (
+        <div className="fixed bottom-5 right-5 z-50 rounded-xl border border-emerald-200 bg-white px-4 py-3 shadow-lg">
+          <p className="text-sm font-medium text-emerald-700">
+            {success}
           </p>
         </div>
       )}
