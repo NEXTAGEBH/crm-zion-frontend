@@ -203,9 +203,7 @@ async function autenticar(
   const crmUser =
     currentUser as CurrentUser;
 
-  if (
-    !crmUser.isActive
-  ) {
+  if (!crmUser.isActive) {
     return {
       autorizado:
         false as const,
@@ -291,8 +289,10 @@ async function autenticar(
       true as const,
 
     supabaseAdmin,
+
     currentUser:
       crmUser,
+
     company,
   };
 }
@@ -403,8 +403,7 @@ async function validarConversa(
 
   return {
     conversation:
-      conversation as
-        ConversationRow,
+      conversation as ConversationRow,
 
     contact:
       contato,
@@ -442,9 +441,7 @@ export async function GET(
       );
 
     /*
-     * =================================================
-     * DETALHE DE UMA CONVERSA
-     * =================================================
+     * DETALHE DA CONVERSA
      */
     if (conversationId) {
       const acesso =
@@ -495,9 +492,7 @@ export async function GET(
               ascending: true,
             }
           )
-          .limit(
-            300
-          );
+          .limit(300);
 
       if (
         messagesError
@@ -525,18 +520,21 @@ export async function GET(
             messages ||
             []
           ) as MessageRow[],
+
+        currentUser: {
+          id:
+            currentUser.id,
+
+          role:
+            currentUser.role,
+        },
       });
     }
 
     /*
-     * =================================================
-     * LISTAGEM DA CAIXA DE ENTRADA
-     * =================================================
+     * LISTA DE CONTATOS
+     * PERMITIDOS
      */
-
-    let contatosPermitidos:
-      ContactRow[] = [];
-
     let contactsQuery =
       supabaseAdmin
         .from("Contact")
@@ -580,7 +578,7 @@ export async function GET(
       );
     }
 
-    contatosPermitidos =
+    const contatosPermitidos =
       (
         contacts ||
         []
@@ -599,9 +597,20 @@ export async function GET(
     ) {
       return NextResponse.json({
         conversations: [],
+
+        currentUser: {
+          id:
+            currentUser.id,
+
+          role:
+            currentUser.role,
+        },
       });
     }
 
+    /*
+     * CONVERSAS
+     */
     const {
       data: conversations,
       error:
@@ -654,6 +663,14 @@ export async function GET(
     ) {
       return NextResponse.json({
         conversations: [],
+
+        currentUser: {
+          id:
+            currentUser.id,
+
+          role:
+            currentUser.role,
+        },
       });
     }
 
@@ -665,6 +682,9 @@ export async function GET(
           conversation.id
       );
 
+    /*
+     * MENSAGENS MAIS RECENTES
+     */
     const {
       data: messages,
       error:
@@ -695,9 +715,7 @@ export async function GET(
             ascending: false,
           }
         )
-        .limit(
-          1000
-        );
+        .limit(1000);
 
     if (
       messagesError
@@ -754,28 +772,34 @@ export async function GET(
       conversationRows.map(
         (
           conversation
-        ) => {
-          return {
-            ...conversation,
+        ) => ({
+          ...conversation,
 
-            contact:
-              contactMap.get(
-                conversation.contactId
-              ) ||
-              null,
+          contact:
+            contactMap.get(
+              conversation.contactId
+            ) ||
+            null,
 
-            lastMessage:
-              latestMessageMap.get(
-                conversation.id
-              ) ||
-              null,
-          };
-        }
+          lastMessage:
+            latestMessageMap.get(
+              conversation.id
+            ) ||
+            null,
+        })
       );
 
     return NextResponse.json({
       conversations:
         inbox,
+
+      currentUser: {
+        id:
+          currentUser.id,
+
+        role:
+          currentUser.role,
+      },
     });
   } catch (error) {
     console.error(
@@ -865,6 +889,9 @@ export async function PATCH(
       );
     }
 
+    /*
+     * MARCAR COMO LIDA
+     */
     if (
       action ===
       "mark_read"
@@ -906,6 +933,306 @@ export async function PATCH(
       return NextResponse.json({
         message:
           "Conversa marcada como lida.",
+      });
+    }
+
+    /*
+     * ATRIBUIR RESPONSÁVEL
+     *
+     * Somente admin e zion_admin.
+     */
+    if (
+      action ===
+      "assign_responsible"
+    ) {
+      if (
+        ![
+          "admin",
+          "zion_admin",
+        ].includes(
+          currentUser.role
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Você não possui permissão para alterar o responsável.",
+          },
+          {
+            status: 403,
+          }
+        );
+      }
+
+      const responsibleId =
+        typeof body.responsibleId ===
+        "string" &&
+        body.responsibleId.trim()
+          ? body.responsibleId.trim()
+          : null;
+
+      /*
+       * Permite remover o responsável.
+       */
+      if (
+        responsibleId
+      ) {
+        const {
+          data: responsavel,
+          error:
+            responsavelError,
+        } =
+          await supabaseAdmin
+            .from("User")
+            .select(
+              "id, name, role, companyId, isActive"
+            )
+            .eq(
+              "id",
+              responsibleId
+            )
+            .eq(
+              "companyId",
+              currentUser.companyId
+            )
+            .eq(
+              "isActive",
+              true
+            )
+            .maybeSingle();
+
+        if (
+          responsavelError
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                responsavelError.message,
+            },
+            {
+              status: 500,
+            }
+          );
+        }
+
+        if (
+          !responsavel
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "Responsável inválido ou inativo.",
+            },
+            {
+              status: 400,
+            }
+          );
+        }
+
+        if (
+          ![
+            "admin",
+            "atendente",
+            "zion_admin",
+          ].includes(
+            responsavel.role
+          )
+        ) {
+          return NextResponse.json(
+            {
+              error:
+                "Usuário não pode receber leads.",
+            },
+            {
+              status: 400,
+            }
+          );
+        }
+      }
+
+      const {
+        data:
+          contatoAtualizado,
+        error:
+          updateError,
+      } =
+        await supabaseAdmin
+          .from("Contact")
+          .update({
+            responsibleId,
+          })
+          .eq(
+            "id",
+            acesso.contact.id
+          )
+          .eq(
+            "companyId",
+            currentUser.companyId
+          )
+          .select(
+            "id, name, phone, whatsappWaId, responsibleId, funnelStepId"
+          )
+          .single();
+
+      if (
+        updateError ||
+        !contatoAtualizado
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              updateError
+                ?.message ||
+              "Não foi possível alterar o responsável.",
+          },
+          {
+            status: 500,
+          }
+        );
+      }
+
+      return NextResponse.json({
+        message:
+          responsibleId
+            ? "Responsável atualizado."
+            : "Responsável removido.",
+
+        contact:
+          contatoAtualizado,
+      });
+    }
+
+    /*
+     * ALTERAR ETAPA DO FUNIL
+     *
+     * Admin pode alterar qualquer
+     * lead da empresa.
+     *
+     * Atendente somente chega aqui
+     * se validarConversa confirmou
+     * que o lead pertence a ele.
+     */
+    if (
+      action ===
+      "update_funnel_step"
+    ) {
+      const funnelStepId =
+        typeof body.funnelStepId ===
+        "string"
+          ? body.funnelStepId.trim()
+          : "";
+
+      if (
+        !funnelStepId
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "funnelStepId é obrigatório.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      const {
+        data: etapa,
+        error:
+          etapaError,
+      } =
+        await supabaseAdmin
+          .from("FunnelStep")
+          .select(
+            "id, name, order, stageType, companyId"
+          )
+          .eq(
+            "id",
+            funnelStepId
+          )
+          .eq(
+            "companyId",
+            currentUser.companyId
+          )
+          .maybeSingle();
+
+      if (
+        etapaError
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              etapaError.message,
+          },
+          {
+            status: 500,
+          }
+        );
+      }
+
+      if (!etapa) {
+        return NextResponse.json(
+          {
+            error:
+              "Etapa do funil inválida.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      const {
+        data:
+          contatoAtualizado,
+        error:
+          updateError,
+      } =
+        await supabaseAdmin
+          .from("Contact")
+          .update({
+            funnelStepId:
+              etapa.id,
+          })
+          .eq(
+            "id",
+            acesso.contact.id
+          )
+          .eq(
+            "companyId",
+            currentUser.companyId
+          )
+          .select(
+            "id, name, phone, whatsappWaId, responsibleId, funnelStepId"
+          )
+          .single();
+
+      if (
+        updateError ||
+        !contatoAtualizado
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              updateError
+                ?.message ||
+              "Não foi possível alterar a etapa.",
+          },
+          {
+            status: 500,
+          }
+        );
+      }
+
+      return NextResponse.json({
+        message:
+          "Etapa do funil atualizada.",
+
+        contact:
+          contatoAtualizado,
+
+        funnelStep:
+          etapa,
       });
     }
 

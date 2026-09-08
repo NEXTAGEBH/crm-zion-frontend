@@ -48,6 +48,11 @@ type Conversation = {
   lastMessage: Message | null;
 };
 
+type CurrentUserInfo = {
+  id: string;
+  role: string;
+};
+
 type ConversationDetail = {
   conversation: {
     id: string;
@@ -62,7 +67,27 @@ type ConversationDetail = {
   };
 
   contact: Contact;
+
   messages: Message[];
+
+  currentUser?: CurrentUserInfo;
+};
+
+type TeamUser = {
+  id: string;
+  name: string | null;
+  email: string;
+  role: string;
+  companyId: string;
+  isActive: boolean;
+};
+
+type FunnelStep = {
+  id: string;
+  name: string;
+  order: number;
+  companyId: string;
+  stageType?: string;
 };
 
 function formatarHorario(
@@ -98,11 +123,8 @@ function formatarHorario(
     return new Intl.DateTimeFormat(
       "pt-BR",
       {
-        hour:
-          "2-digit",
-
-        minute:
-          "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
       }
     ).format(date);
   }
@@ -110,11 +132,8 @@ function formatarHorario(
   return new Intl.DateTimeFormat(
     "pt-BR",
     {
-      day:
-        "2-digit",
-
-      month:
-        "2-digit",
+      day: "2-digit",
+      month: "2-digit",
     }
   ).format(date);
 }
@@ -140,11 +159,8 @@ function formatarHorarioMensagem(
   return new Intl.DateTimeFormat(
     "pt-BR",
     {
-      hour:
-        "2-digit",
-
-      minute:
-        "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
     }
   ).format(date);
 }
@@ -209,11 +225,8 @@ function formatarDiaMensagem(
   return new Intl.DateTimeFormat(
     "pt-BR",
     {
-      day:
-        "2-digit",
-
-      month:
-        "long",
+      day: "2-digit",
+      month: "long",
 
       year:
         date.getFullYear() !==
@@ -369,9 +382,7 @@ export default function WhatsAppPage() {
   const [
     conversations,
     setConversations,
-  ] = useState<
-    Conversation[]
-  >([]);
+  ] = useState<Conversation[]>([]);
 
   const [
     selectedId,
@@ -388,32 +399,51 @@ export default function WhatsAppPage() {
   >(null);
 
   const [
+    teamUsers,
+    setTeamUsers,
+  ] = useState<TeamUser[]>([]);
+
+  const [
+    funnelSteps,
+    setFunnelSteps,
+  ] = useState<FunnelStep[]>([]);
+
+  const [
+    currentUser,
+    setCurrentUser,
+  ] = useState<
+    CurrentUserInfo | null
+  >(null);
+
+  const [
     loading,
     setLoading,
-  ] = useState(
-    true
-  );
+  ] = useState(true);
 
   const [
     loadingDetail,
     setLoadingDetail,
-  ] = useState(
-    false
-  );
+  ] = useState(false);
 
   const [
     refreshing,
     setRefreshing,
-  ] = useState(
-    false
-  );
+  ] = useState(false);
 
   const [
     sending,
     setSending,
-  ] = useState(
-    false
-  );
+  ] = useState(false);
+
+  const [
+    savingResponsible,
+    setSavingResponsible,
+  ] = useState(false);
+
+  const [
+    savingFunnel,
+    setSavingFunnel,
+  ] = useState(false);
 
   const [
     search,
@@ -498,10 +528,159 @@ export default function WhatsAppPage() {
       []
     );
 
+  /*
+   * Carrega usuário atual,
+   * usuários da empresa e etapas
+   * do funil usando RLS.
+   */
+  const carregarOpcoes =
+    useCallback(
+      async () => {
+        try {
+          const {
+            data: authData,
+            error:
+              authError,
+          } =
+            await supabase.auth
+              .getUser();
+
+          if (
+            authError ||
+            !authData.user
+          ) {
+            throw new Error(
+              "Usuário não autenticado."
+            );
+          }
+
+          const {
+            data: crmUser,
+            error:
+              crmUserError,
+          } =
+            await supabase
+              .from("User")
+              .select(
+                "id, name, email, role, companyId, isActive"
+              )
+              .eq(
+                "id",
+                authData.user.id
+              )
+              .maybeSingle();
+
+          if (
+            crmUserError ||
+            !crmUser
+          ) {
+            throw new Error(
+              crmUserError
+                ?.message ||
+                "Usuário não encontrado."
+            );
+          }
+
+          setCurrentUser({
+            id:
+              crmUser.id,
+
+            role:
+              crmUser.role,
+          });
+
+          const [
+            usersResult,
+            stepsResult,
+          ] =
+            await Promise.all([
+              supabase
+                .from("User")
+                .select(
+                  "id, name, email, role, companyId, isActive"
+                )
+                .eq(
+                  "companyId",
+                  crmUser.companyId
+                )
+                .eq(
+                  "isActive",
+                  true
+                )
+                .order(
+                  "name",
+                  {
+                    ascending:
+                      true,
+                  }
+                ),
+
+              supabase
+                .from("FunnelStep")
+                .select(
+                  "id, name, order, companyId, stageType"
+                )
+                .eq(
+                  "companyId",
+                  crmUser.companyId
+                )
+                .order(
+                  "order",
+                  {
+                    ascending:
+                      true,
+                  }
+                ),
+            ]);
+
+          if (
+            usersResult.error
+          ) {
+            throw new Error(
+              usersResult.error
+                .message
+            );
+          }
+
+          if (
+            stepsResult.error
+          ) {
+            throw new Error(
+              stepsResult.error
+                .message
+            );
+          }
+
+          setTeamUsers(
+            (
+              usersResult.data ||
+              []
+            ) as TeamUser[]
+          );
+
+          setFunnelSteps(
+            (
+              stepsResult.data ||
+              []
+            ) as FunnelStep[]
+          );
+        } catch (
+          err
+        ) {
+          console.error(
+            "Erro ao carregar opções do atendimento:",
+            err
+          );
+        }
+      },
+      []
+    );
+
   const carregarLista =
     useCallback(
       async (
-        mostrarLoading = false
+        mostrarLoading =
+          false
       ) => {
         try {
           if (
@@ -555,12 +734,44 @@ export default function WhatsAppPage() {
           );
 
           if (
+            data.currentUser
+          ) {
+            setCurrentUser(
+              data.currentUser
+            );
+          }
+
+          if (
             lista.length >
               0 &&
             !selectedIdRef.current
           ) {
             setSelectedId(
               lista[0].id
+            );
+          }
+
+          /*
+           * Se o atendente perdeu
+           * acesso à conversa após
+           * uma reatribuição.
+           */
+          if (
+            selectedIdRef.current &&
+            !lista.some(
+              (
+                item
+              ) =>
+                item.id ===
+                selectedIdRef.current
+            ) &&
+            data.currentUser
+              ?.role ===
+              "atendente"
+          ) {
+            setSelectedId(
+              lista[0]?.id ||
+                null
             );
           }
         } catch (
@@ -573,13 +784,8 @@ export default function WhatsAppPage() {
               : "Erro ao carregar conversas."
           );
         } finally {
-          setLoading(
-            false
-          );
-
-          setRefreshing(
-            false
-          );
+          setLoading(false);
+          setRefreshing(false);
         }
       },
       [
@@ -590,7 +796,8 @@ export default function WhatsAppPage() {
   const marcarComoLida =
     useCallback(
       async (
-        conversationId: string
+        conversationId:
+          string
       ) => {
         try {
           const token =
@@ -612,14 +819,12 @@ export default function WhatsAppPage() {
                 },
 
                 body:
-                  JSON.stringify(
-                    {
-                      action:
-                        "mark_read",
+                  JSON.stringify({
+                    action:
+                      "mark_read",
 
-                      conversationId,
-                    }
-                  ),
+                    conversationId,
+                  }),
               }
             );
 
@@ -660,7 +865,8 @@ export default function WhatsAppPage() {
   const carregarDetalhe =
     useCallback(
       async (
-        conversationId: string,
+        conversationId:
+          string,
         marcarLida = true,
         mostrarLoading = true
       ) => {
@@ -716,6 +922,14 @@ export default function WhatsAppPage() {
           );
 
           if (
+            data.currentUser
+          ) {
+            setCurrentUser(
+              data.currentUser
+            );
+          }
+
+          if (
             marcarLida &&
             Number(
               data
@@ -753,6 +967,281 @@ export default function WhatsAppPage() {
       ]
     );
 
+  const atualizarResponsavel =
+    useCallback(
+      async (
+        responsibleId:
+          string | null
+      ) => {
+        const conversationId =
+          selectedIdRef.current;
+
+        if (
+          !conversationId ||
+          savingResponsible
+        ) {
+          return;
+        }
+
+        try {
+          setSavingResponsible(
+            true
+          );
+
+          setError(null);
+
+          const token =
+            await pegarToken();
+
+          const response =
+            await fetch(
+              "/api/whatsapp/conversations",
+              {
+                method:
+                  "PATCH",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+
+                  Authorization:
+                    `Bearer ${token}`,
+                },
+
+                body:
+                  JSON.stringify({
+                    action:
+                      "assign_responsible",
+
+                    conversationId,
+
+                    responsibleId,
+                  }),
+              }
+            );
+
+          const data =
+            await response.json();
+
+          if (
+            !response.ok
+          ) {
+            throw new Error(
+              data.error ||
+                "Não foi possível alterar o responsável."
+            );
+          }
+
+          if (
+            data.contact
+          ) {
+            setDetail(
+              (
+                current
+              ) =>
+                current
+                  ? {
+                      ...current,
+
+                      contact:
+                        data.contact,
+                    }
+                  : current
+            );
+
+            setConversations(
+              (
+                current
+              ) =>
+                current.map(
+                  (
+                    conversation
+                  ) =>
+                    conversation.id ===
+                    conversationId
+                      ? {
+                          ...conversation,
+
+                          contact:
+                            data.contact,
+                        }
+                      : conversation
+                )
+            );
+          }
+
+          setSuccess(
+            responsibleId
+              ? "Responsável atualizado."
+              : "Responsável removido."
+          );
+
+          window.setTimeout(
+            () => {
+              setSuccess(
+                null
+              );
+            },
+            1800
+          );
+        } catch (
+          err
+        ) {
+          setError(
+            err instanceof
+              Error
+              ? err.message
+              : "Erro ao alterar responsável."
+          );
+        } finally {
+          setSavingResponsible(
+            false
+          );
+        }
+      },
+      [
+        pegarToken,
+        savingResponsible,
+      ]
+    );
+
+  const atualizarEtapa =
+    useCallback(
+      async (
+        funnelStepId:
+          string
+      ) => {
+        const conversationId =
+          selectedIdRef.current;
+
+        if (
+          !conversationId ||
+          !funnelStepId ||
+          savingFunnel
+        ) {
+          return;
+        }
+
+        try {
+          setSavingFunnel(
+            true
+          );
+
+          setError(null);
+
+          const token =
+            await pegarToken();
+
+          const response =
+            await fetch(
+              "/api/whatsapp/conversations",
+              {
+                method:
+                  "PATCH",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+
+                  Authorization:
+                    `Bearer ${token}`,
+                },
+
+                body:
+                  JSON.stringify({
+                    action:
+                      "update_funnel_step",
+
+                    conversationId,
+
+                    funnelStepId,
+                  }),
+              }
+            );
+
+          const data =
+            await response.json();
+
+          if (
+            !response.ok
+          ) {
+            throw new Error(
+              data.error ||
+                "Não foi possível alterar a etapa."
+            );
+          }
+
+          if (
+            data.contact
+          ) {
+            setDetail(
+              (
+                current
+              ) =>
+                current
+                  ? {
+                      ...current,
+
+                      contact:
+                        data.contact,
+                    }
+                  : current
+            );
+
+            setConversations(
+              (
+                current
+              ) =>
+                current.map(
+                  (
+                    conversation
+                  ) =>
+                    conversation.id ===
+                    conversationId
+                      ? {
+                          ...conversation,
+
+                          contact:
+                            data.contact,
+                        }
+                      : conversation
+                )
+            );
+          }
+
+          setSuccess(
+            "Etapa atualizada."
+          );
+
+          window.setTimeout(
+            () => {
+              setSuccess(
+                null
+              );
+            },
+            1800
+          );
+        } catch (
+          err
+        ) {
+          setError(
+            err instanceof
+              Error
+              ? err.message
+              : "Erro ao alterar etapa."
+          );
+        } finally {
+          setSavingFunnel(
+            false
+          );
+        }
+      },
+      [
+        pegarToken,
+        savingFunnel,
+      ]
+    );
+
   const enviarMensagem =
     useCallback(
       async () => {
@@ -771,17 +1260,9 @@ export default function WhatsAppPage() {
         }
 
         try {
-          setSending(
-            true
-          );
-
-          setError(
-            null
-          );
-
-          setSuccess(
-            null
-          );
+          setSending(true);
+          setError(null);
+          setSuccess(null);
 
           const token =
             await pegarToken();
@@ -802,12 +1283,10 @@ export default function WhatsAppPage() {
                 },
 
                 body:
-                  JSON.stringify(
-                    {
-                      conversationId,
-                      text,
-                    }
-                  ),
+                  JSON.stringify({
+                    conversationId,
+                    text,
+                  }),
               }
             );
 
@@ -830,9 +1309,7 @@ export default function WhatsAppPage() {
             );
           }
 
-          setMessageText(
-            ""
-          );
+          setMessageText("");
 
           setSuccess(
             "Mensagem enviada."
@@ -848,11 +1325,9 @@ export default function WhatsAppPage() {
 
           window.setTimeout(
             () => {
-              setSuccess(
-                null
-              );
+              setSuccess(null);
             },
-            2000
+            1800
           );
 
           window.setTimeout(
@@ -872,9 +1347,7 @@ export default function WhatsAppPage() {
               : "Erro ao enviar mensagem."
           );
         } finally {
-          setSending(
-            false
-          );
+          setSending(false);
         }
       },
       [
@@ -911,30 +1384,27 @@ export default function WhatsAppPage() {
 
   useEffect(
     () => {
-      void carregarLista();
+      void Promise.all([
+        carregarLista(),
+        carregarOpcoes(),
+      ]);
     },
     [
       carregarLista,
+      carregarOpcoes,
     ]
   );
 
   useEffect(
     () => {
       if (!selectedId) {
-        setDetail(
-          null
-        );
+        setDetail(null);
 
         return;
       }
 
-      setDetail(
-        null
-      );
-
-      setMessageText(
-        ""
-      );
+      setDetail(null);
+      setMessageText("");
 
       void carregarDetalhe(
         selectedId,
@@ -1082,6 +1552,40 @@ export default function WhatsAppPage() {
       ]
     );
 
+  const podeAtribuir =
+    currentUser
+      ? [
+          "admin",
+          "zion_admin",
+        ].includes(
+          currentUser.role
+        )
+      : false;
+
+  const responsavelAtual =
+    detail
+      ? teamUsers.find(
+          (
+            user
+          ) =>
+            user.id ===
+            detail.contact
+              .responsibleId
+        )
+      : undefined;
+
+  const etapaAtual =
+    detail
+      ? funnelSteps.find(
+          (
+            step
+          ) =>
+            step.id ===
+            detail.contact
+              .funnelStepId
+        )
+      : undefined;
+
   if (loading) {
     return (
       <div className="flex h-[calc(100vh-2rem)] items-center justify-center rounded-2xl border border-slate-200 bg-white">
@@ -1098,7 +1602,8 @@ export default function WhatsAppPage() {
 
   return (
     <div className="flex h-[calc(100vh-2rem)] min-h-[650px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <section className="flex w-[380px] min-w-[320px] flex-col border-r border-slate-200">
+      {/* CONVERSAS */}
+      <section className="flex w-[360px] min-w-[310px] flex-col border-r border-slate-200">
         <div className="border-b border-slate-200 px-5 pb-4 pt-5">
           <div className="mb-4 flex items-start justify-between gap-4">
             <div>
@@ -1110,9 +1615,7 @@ export default function WhatsAppPage() {
                 {totalUnread >
                   0 && (
                   <span className="flex min-w-6 items-center justify-center rounded-full bg-slate-900 px-2 py-0.5 text-xs font-semibold text-white">
-                    {
-                      totalUnread
-                    }
+                    {totalUnread}
                   </span>
                 )}
               </div>
@@ -1147,9 +1650,7 @@ export default function WhatsAppPage() {
           </div>
 
           <input
-            value={
-              search
-            }
+            value={search}
             onChange={(
               event
             ) =>
@@ -1173,6 +1674,11 @@ export default function WhatsAppPage() {
 
                 <p className="text-sm font-medium text-slate-700">
                   Nenhuma conversa
+                </p>
+
+                <p className="mt-1 text-xs text-slate-400">
+                  Novas mensagens
+                  aparecerão aqui.
                 </p>
               </div>
             </div>
@@ -1268,9 +1774,7 @@ export default function WhatsAppPage() {
                         {unread >
                           0 && (
                           <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 px-1.5 text-[10px] font-semibold text-white">
-                            {
-                              unread
-                            }
+                            {unread}
                           </span>
                         )}
                       </div>
@@ -1283,12 +1787,12 @@ export default function WhatsAppPage() {
         </div>
       </section>
 
+      {/* ATENDIMENTO */}
       <section className="flex min-w-0 flex-1 flex-col bg-slate-50">
         {!selectedId ? (
           <div className="flex h-full items-center justify-center">
             <p className="text-sm text-slate-500">
-              Selecione uma
-              conversa.
+              Selecione uma conversa.
             </p>
           </div>
         ) : loadingDetail &&
@@ -1300,37 +1804,178 @@ export default function WhatsAppPage() {
           </div>
         ) : detail ? (
           <>
-            <div className="flex h-[76px] shrink-0 items-center justify-between border-b border-slate-200 bg-white px-5">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold uppercase text-slate-600">
-                  {detail.contact.name
-                    ?.trim()
-                    ?.charAt(
-                      0
-                    ) ||
-                    "?"}
+            {/* CABEÇALHO */}
+            <div className="shrink-0 border-b border-slate-200 bg-white">
+              <div className="flex min-h-[72px] items-center justify-between gap-5 px-5 py-3">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold uppercase text-slate-600">
+                    {detail.contact.name
+                      ?.trim()
+                      ?.charAt(
+                        0
+                      ) ||
+                      "?"}
+                  </div>
+
+                  <div className="min-w-0">
+                    <h2 className="truncate text-sm font-semibold text-slate-900">
+                      {detail
+                        .contact
+                        .name ||
+                        "Contato"}
+                    </h2>
+
+                    <p className="mt-0.5 truncate text-xs text-slate-500">
+                      {detail
+                        .contact
+                        .phone}
+                    </p>
+                  </div>
+                </div>
+
+                <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500">
+                  WhatsApp
+                </span>
+              </div>
+
+              {/* CONTROLES CRM */}
+              <div className="grid grid-cols-1 gap-3 border-t border-slate-100 px-5 py-3 md:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                    Responsável
+                  </label>
+
+                  {podeAtribuir ? (
+                    <select
+                      value={
+                        detail
+                          .contact
+                          .responsibleId ||
+                        ""
+                      }
+                      disabled={
+                        savingResponsible
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        void atualizarResponsavel(
+                          event
+                            .target
+                            .value ||
+                            null
+                        )
+                      }
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-slate-400 disabled:bg-slate-50"
+                    >
+                      <option value="">
+                        Sem responsável
+                      </option>
+
+                      {teamUsers.map(
+                        (
+                          user
+                        ) => (
+                          <option
+                            key={
+                              user.id
+                            }
+                            value={
+                              user.id
+                            }
+                          >
+                            {user.name ||
+                              user.email}
+                            {user.role ===
+                            "admin"
+                              ? " (Admin)"
+                              : user.role ===
+                                  "zion_admin"
+                                ? " (Zion)"
+                                : ""}
+                          </option>
+                        )
+                      )}
+                    </select>
+                  ) : (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                      {responsavelAtual
+                        ?.name ||
+                        responsavelAtual
+                          ?.email ||
+                        "Sem responsável"}
+                    </div>
+                  )}
+
+                  {savingResponsible && (
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      Salvando responsável...
+                    </p>
+                  )}
                 </div>
 
                 <div>
-                  <h2 className="text-sm font-semibold text-slate-900">
-                    {detail
-                      .contact
-                      .name}
-                  </h2>
+                  <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                    Etapa do funil
+                  </label>
 
-                  <p className="mt-0.5 text-xs text-slate-500">
-                    {detail
+                  <select
+                    value={
+                      detail
+                        .contact
+                        .funnelStepId ||
+                      ""
+                    }
+                    disabled={
+                      savingFunnel
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      void atualizarEtapa(
+                        event
+                          .target
+                          .value
+                      )
+                    }
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-slate-400 disabled:bg-slate-50"
+                  >
+                    {!detail
                       .contact
-                      .phone}
-                  </p>
+                      .funnelStepId && (
+                      <option value="">
+                        Selecione uma etapa
+                      </option>
+                    )}
+
+                    {funnelSteps.map(
+                      (
+                        step
+                      ) => (
+                        <option
+                          key={
+                            step.id
+                          }
+                          value={
+                            step.id
+                          }
+                        >
+                          {step.name}
+                        </option>
+                      )
+                    )}
+                  </select>
+
+                  {savingFunnel && (
+                    <p className="mt-1 text-[10px] text-slate-400">
+                      Salvando etapa...
+                    </p>
+                  )}
                 </div>
               </div>
-
-              <span className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500">
-                WhatsApp
-              </span>
             </div>
 
+            {/* MENSAGENS */}
             <div className="flex-1 overflow-y-auto px-5 py-6">
               <div className="mx-auto flex max-w-4xl flex-col gap-2">
                 {detail.messages.map(
@@ -1340,8 +1985,7 @@ export default function WhatsAppPage() {
                   ) => {
                     const anterior =
                       detail.messages[
-                        index -
-                          1
+                        index - 1
                       ];
 
                     const dataAtual =
@@ -1443,6 +2087,7 @@ export default function WhatsAppPage() {
               </div>
             </div>
 
+            {/* ENVIO */}
             <form
               onSubmit={
                 handleSubmit
@@ -1461,8 +2106,7 @@ export default function WhatsAppPage() {
                     event
                   ) =>
                     setMessageText(
-                      event
-                        .target
+                      event.target
                         .value
                     )
                   }
@@ -1475,9 +2119,7 @@ export default function WhatsAppPage() {
                   maxLength={
                     4096
                   }
-                  rows={
-                    1
-                  }
+                  rows={1}
                   placeholder="Digite uma mensagem..."
                   className="max-h-32 min-h-[46px] flex-1 resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 disabled:bg-slate-50"
                 />
@@ -1525,9 +2167,7 @@ export default function WhatsAppPage() {
             <button
               type="button"
               onClick={() =>
-                setError(
-                  null
-                )
+                setError(null)
               }
               className="text-xs text-slate-400"
             >
