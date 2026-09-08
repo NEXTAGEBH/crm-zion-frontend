@@ -12,12 +12,17 @@ type CurrentUser = {
   isActive: boolean;
 };
 
+type ConversationStatus =
+  | "open"
+  | "waiting"
+  | "closed";
+
 type ConversationRow = {
   id: string;
   companyId: string;
   whatsappAccountId: string;
   contactId: string;
-  status: string;
+  status: ConversationStatus;
   unreadCount: number;
   lastMessageAt: string | null;
   createdAt: string;
@@ -95,10 +100,7 @@ function pegarToken(
   }
 
   return authorization
-    .replace(
-      "Bearer ",
-      ""
-    )
+    .replace("Bearer ", "")
     .trim();
 }
 
@@ -109,14 +111,11 @@ async function autenticar(
     getSupabaseAdmin();
 
   const token =
-    pegarToken(
-      request
-    );
+    pegarToken(request);
 
   if (!token) {
     return {
-      autorizado:
-        false as const,
+      autorizado: false as const,
 
       response:
         NextResponse.json(
@@ -139,17 +138,14 @@ async function autenticar(
   } =
     await supabaseAdmin
       .auth
-      .getUser(
-        token
-      );
+      .getUser(token);
 
   if (
     authError ||
     !user
   ) {
     return {
-      autorizado:
-        false as const,
+      autorizado: false as const,
 
       response:
         NextResponse.json(
@@ -184,8 +180,7 @@ async function autenticar(
     !currentUser
   ) {
     return {
-      autorizado:
-        false as const,
+      autorizado: false as const,
 
       response:
         NextResponse.json(
@@ -205,8 +200,7 @@ async function autenticar(
 
   if (!crmUser.isActive) {
     return {
-      autorizado:
-        false as const,
+      autorizado: false as const,
 
       response:
         NextResponse.json(
@@ -231,8 +225,7 @@ async function autenticar(
     )
   ) {
     return {
-      autorizado:
-        false as const,
+      autorizado: false as const,
 
       response:
         NextResponse.json(
@@ -268,8 +261,7 @@ async function autenticar(
     !company.isActive
   ) {
     return {
-      autorizado:
-        false as const,
+      autorizado: false as const,
 
       response:
         NextResponse.json(
@@ -285,14 +277,9 @@ async function autenticar(
   }
 
   return {
-    autorizado:
-      true as const,
-
+    autorizado: true as const,
     supabaseAdmin,
-
-    currentUser:
-      crmUser,
-
+    currentUser: crmUser,
     company,
   };
 }
@@ -532,8 +519,8 @@ export async function GET(
     }
 
     /*
-     * LISTA DE CONTATOS
-     * PERMITIDOS
+     * CONTATOS QUE O USUÁRIO
+     * PODE VISUALIZAR
      */
     let contactsQuery =
       supabaseAdmin
@@ -593,7 +580,8 @@ export async function GET(
       );
 
     if (
-      contactIds.length === 0
+      contactIds.length ===
+      0
     ) {
       return NextResponse.json({
         conversations: [],
@@ -683,7 +671,7 @@ export async function GET(
       );
 
     /*
-     * MENSAGENS MAIS RECENTES
+     * ÚLTIMAS MENSAGENS
      */
     const {
       data: messages,
@@ -937,9 +925,139 @@ export async function PATCH(
     }
 
     /*
-     * ATRIBUIR RESPONSÁVEL
+     * ALTERAR STATUS DO ATENDIMENTO
      *
-     * Somente admin e zion_admin.
+     * open
+     * waiting
+     * closed
+     *
+     * Admin pode alterar qualquer
+     * conversa da empresa.
+     *
+     * Atendente só consegue chegar
+     * até aqui se o contato estiver
+     * atribuído a ele.
+     */
+    if (
+      action ===
+      "update_status"
+    ) {
+      const status =
+        typeof body.status ===
+        "string"
+          ? body.status.trim()
+          : "";
+
+      const statusPermitidos:
+        ConversationStatus[] = [
+          "open",
+          "waiting",
+          "closed",
+        ];
+
+      if (
+        !statusPermitidos.includes(
+          status as ConversationStatus
+        )
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              "Status de atendimento inválido.",
+          },
+          {
+            status: 400,
+          }
+        );
+      }
+
+      const novoStatus =
+        status as ConversationStatus;
+
+      const {
+        data:
+          conversaAtualizada,
+        error:
+          updateError,
+      } =
+        await supabaseAdmin
+          .from("Conversation")
+          .update({
+            status:
+              novoStatus,
+
+            updatedAt:
+              new Date()
+                .toISOString(),
+          })
+          .eq(
+            "id",
+            conversationId
+          )
+          .eq(
+            "companyId",
+            currentUser.companyId
+          )
+          .select(
+            "id, companyId, whatsappAccountId, contactId, status, unreadCount, lastMessageAt, createdAt, updatedAt"
+          )
+          .single();
+
+      if (
+        updateError ||
+        !conversaAtualizada
+      ) {
+        return NextResponse.json(
+          {
+            error:
+              updateError
+                ?.message ||
+              "Não foi possível alterar o status da conversa.",
+          },
+          {
+            status: 500,
+          }
+        );
+      }
+
+      let mensagem =
+        "Status atualizado.";
+
+      if (
+        novoStatus ===
+        "open"
+      ) {
+        mensagem =
+          "Conversa em atendimento.";
+      }
+
+      if (
+        novoStatus ===
+        "waiting"
+      ) {
+        mensagem =
+          "Conversa aguardando cliente.";
+      }
+
+      if (
+        novoStatus ===
+        "closed"
+      ) {
+        mensagem =
+          "Conversa finalizada.";
+      }
+
+      return NextResponse.json({
+        message:
+          mensagem,
+
+        conversation:
+          conversaAtualizada,
+      });
+    }
+
+    /*
+     * ATRIBUIR RESPONSÁVEL
      */
     if (
       action ===
@@ -966,14 +1084,11 @@ export async function PATCH(
 
       const responsibleId =
         typeof body.responsibleId ===
-        "string" &&
+          "string" &&
         body.responsibleId.trim()
           ? body.responsibleId.trim()
           : null;
 
-      /*
-       * Permite remover o responsável.
-       */
       if (
         responsibleId
       ) {
@@ -1104,13 +1219,6 @@ export async function PATCH(
 
     /*
      * ALTERAR ETAPA DO FUNIL
-     *
-     * Admin pode alterar qualquer
-     * lead da empresa.
-     *
-     * Atendente somente chega aqui
-     * se validarConversa confirmou
-     * que o lead pertence a ele.
      */
     if (
       action ===

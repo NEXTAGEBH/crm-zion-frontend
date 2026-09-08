@@ -12,6 +12,16 @@ import {
 
 import { supabase } from "@/lib/supabaseClient";
 
+type ConversationStatus =
+  | "open"
+  | "waiting"
+  | "closed";
+
+type ConversationFilter =
+  | "all"
+  | "unread"
+  | ConversationStatus;
+
 type Contact = {
   id: string;
   name: string;
@@ -39,7 +49,7 @@ type Conversation = {
   companyId: string;
   whatsappAccountId: string;
   contactId: string;
-  status: string;
+  status: ConversationStatus;
   unreadCount: number;
   lastMessageAt: string | null;
   createdAt: string;
@@ -59,7 +69,7 @@ type ConversationDetail = {
     companyId: string;
     whatsappAccountId: string;
     contactId: string;
-    status: string;
+    status: ConversationStatus;
     unreadCount: number;
     lastMessageAt: string | null;
     createdAt: string;
@@ -99,654 +109,480 @@ type QuickMessage = {
   updatedAt: string;
 };
 
-function formatarHorario(
-  value: string | null
-) {
+function formatarHorario(value: string | null) {
   if (!value) {
     return "";
   }
 
-  const date =
-    new Date(value);
+  const date = new Date(value);
 
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
+  if (Number.isNaN(date.getTime())) {
     return "";
   }
 
-  const agora =
-    new Date();
+  const agora = new Date();
 
   const mesmoDia =
-    agora.getFullYear() ===
-      date.getFullYear() &&
-    agora.getMonth() ===
-      date.getMonth() &&
-    agora.getDate() ===
-      date.getDate();
+    agora.getFullYear() === date.getFullYear() &&
+    agora.getMonth() === date.getMonth() &&
+    agora.getDate() === date.getDate();
 
   if (mesmoDia) {
-    return new Intl.DateTimeFormat(
-      "pt-BR",
-      {
-        hour: "2-digit",
-        minute: "2-digit",
-      }
-    ).format(date);
-  }
-
-  return new Intl.DateTimeFormat(
-    "pt-BR",
-    {
-      day: "2-digit",
-      month: "2-digit",
-    }
-  ).format(date);
-}
-
-function formatarHorarioMensagem(
-  value: string | null
-) {
-  if (!value) {
-    return "";
-  }
-
-  const date =
-    new Date(value);
-
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
-    return "";
-  }
-
-  return new Intl.DateTimeFormat(
-    "pt-BR",
-    {
+    return new Intl.DateTimeFormat("pt-BR", {
       hour: "2-digit",
       minute: "2-digit",
-    }
-  ).format(date);
+    }).format(date);
+  }
+
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+  }).format(date);
 }
 
-function formatarDiaMensagem(
-  value: string | null
-) {
+function formatarHorarioMensagem(value: string | null) {
   if (!value) {
     return "";
   }
 
-  const date =
-    new Date(value);
+  const date = new Date(value);
 
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
+  if (Number.isNaN(date.getTime())) {
     return "";
   }
 
-  const hoje =
-    new Date();
+  return new Intl.DateTimeFormat("pt-BR", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
 
-  const ontem =
-    new Date();
+function formatarDiaMensagem(value: string | null) {
+  if (!value) {
+    return "";
+  }
 
-  ontem.setDate(
-    hoje.getDate() - 1
-  );
+  const date = new Date(value);
 
-  const mesmaData = (
-    a: Date,
-    b: Date
-  ) =>
-    a.getFullYear() ===
-      b.getFullYear() &&
-    a.getMonth() ===
-      b.getMonth() &&
-    a.getDate() ===
-      b.getDate();
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
 
-  if (
-    mesmaData(
-      date,
-      hoje
-    )
-  ) {
+  const hoje = new Date();
+  const ontem = new Date();
+
+  ontem.setDate(hoje.getDate() - 1);
+
+  const mesmaData = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
+
+  if (mesmaData(date, hoje)) {
     return "Hoje";
   }
 
-  if (
-    mesmaData(
-      date,
-      ontem
-    )
-  ) {
+  if (mesmaData(date, ontem)) {
     return "Ontem";
   }
 
-  return new Intl.DateTimeFormat(
-    "pt-BR",
-    {
-      day: "2-digit",
-      month: "long",
-
-      year:
-        date.getFullYear() !==
-        hoje.getFullYear()
-          ? "numeric"
-          : undefined,
-    }
-  ).format(date);
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "long",
+    year:
+      date.getFullYear() !== hoje.getFullYear()
+        ? "numeric"
+        : undefined,
+  }).format(date);
 }
 
-function resumoMensagem(
-  message: Message | null
-) {
+function resumoMensagem(message: Message | null) {
   if (!message) {
     return "Nenhuma mensagem.";
   }
 
-  if (
-    message.body &&
-    message.body.trim()
-  ) {
+  if (message.body && message.body.trim()) {
     return message.body;
   }
 
-  if (
-    message.type ===
-    "image"
-  ) {
+  if (message.type === "image") {
     return "Imagem";
   }
 
-  if (
-    message.type ===
-    "audio"
-  ) {
+  if (message.type === "audio") {
     return "Áudio";
   }
 
-  if (
-    message.type ===
-    "video"
-  ) {
+  if (message.type === "video") {
     return "Vídeo";
   }
 
-  if (
-    message.type ===
-    "document"
-  ) {
+  if (message.type === "document") {
     return "Documento";
   }
 
-  if (
-    message.type ===
-    "sticker"
-  ) {
+  if (message.type === "sticker") {
     return "Figurinha";
   }
 
   return "Mensagem";
 }
 
-function conteudoMensagem(
-  message: Message
-) {
-  if (
-    message.body &&
-    message.body.trim()
-  ) {
+function conteudoMensagem(message: Message) {
+  if (message.body && message.body.trim()) {
     return message.body;
   }
 
-  if (
-    message.type ===
-    "image"
-  ) {
+  if (message.type === "image") {
     return "Imagem recebida";
   }
 
-  if (
-    message.type ===
-    "audio"
-  ) {
+  if (message.type === "audio") {
     return "Áudio recebido";
   }
 
-  if (
-    message.type ===
-    "video"
-  ) {
+  if (message.type === "video") {
     return "Vídeo recebido";
   }
 
-  if (
-    message.type ===
-    "document"
-  ) {
+  if (message.type === "document") {
     return "Documento recebido";
   }
 
-  if (
-    message.type ===
-    "sticker"
-  ) {
+  if (message.type === "sticker") {
     return "Figurinha recebida";
   }
 
   return "Mensagem";
 }
 
-function statusMensagem(
-  status: string
-) {
-  if (
-    status ===
-    "pending"
-  ) {
+function statusMensagem(status: string) {
+  if (status === "pending") {
     return "Enviando";
   }
 
-  if (
-    status ===
-    "sent"
-  ) {
+  if (status === "sent") {
     return "Enviada";
   }
 
-  if (
-    status ===
-    "delivered"
-  ) {
+  if (status === "delivered") {
     return "Entregue";
   }
 
-  if (
-    status ===
-    "read"
-  ) {
+  if (status === "read") {
     return "Lida";
   }
 
-  if (
-    status ===
-    "failed"
-  ) {
+  if (status === "failed") {
     return "Falhou";
   }
 
   return "";
 }
 
+function nomeStatusAtendimento(
+  status: ConversationStatus
+) {
+  if (status === "waiting") {
+    return "Aguardando cliente";
+  }
+
+  if (status === "closed") {
+    return "Finalizada";
+  }
+
+  return "Em atendimento";
+}
+
+function classeStatusAtendimento(
+  status: ConversationStatus
+) {
+  if (status === "waiting") {
+    return "bg-amber-50 text-amber-700 border-amber-200";
+  }
+
+  if (status === "closed") {
+    return "bg-slate-100 text-slate-500 border-slate-200";
+  }
+
+  return "bg-emerald-50 text-emerald-700 border-emerald-200";
+}
+
 export default function WhatsAppPage() {
-  const [
-    conversations,
-    setConversations,
-  ] = useState<Conversation[]>([]);
+  const [conversations, setConversations] =
+    useState<Conversation[]>([]);
 
-  const [
-    selectedId,
-    setSelectedId,
-  ] = useState<string | null>(
-    null
-  );
+  const [selectedId, setSelectedId] =
+    useState<string | null>(null);
 
-  const [
-    detail,
-    setDetail,
-  ] = useState<ConversationDetail | null>(
-    null
-  );
+  const [detail, setDetail] =
+    useState<ConversationDetail | null>(null);
 
-  const [
-    teamUsers,
-    setTeamUsers,
-  ] = useState<TeamUser[]>([]);
+  const [teamUsers, setTeamUsers] =
+    useState<TeamUser[]>([]);
 
-  const [
-    funnelSteps,
-    setFunnelSteps,
-  ] = useState<FunnelStep[]>([]);
+  const [funnelSteps, setFunnelSteps] =
+    useState<FunnelStep[]>([]);
 
-  const [
-    quickMessages,
-    setQuickMessages,
-  ] = useState<QuickMessage[]>([]);
+  const [quickMessages, setQuickMessages] =
+    useState<QuickMessage[]>([]);
 
-  const [
-    currentUser,
-    setCurrentUser,
-  ] = useState<CurrentUserInfo | null>(
-    null
-  );
+  const [currentUser, setCurrentUser] =
+    useState<CurrentUserInfo | null>(null);
 
-  const [
-    loading,
-    setLoading,
-  ] = useState(true);
+  const [loading, setLoading] =
+    useState(true);
 
-  const [
-    loadingDetail,
-    setLoadingDetail,
-  ] = useState(false);
+  const [loadingDetail, setLoadingDetail] =
+    useState(false);
 
-  const [
-    refreshing,
-    setRefreshing,
-  ] = useState(false);
+  const [refreshing, setRefreshing] =
+    useState(false);
 
-  const [
-    sending,
-    setSending,
-  ] = useState(false);
+  const [sending, setSending] =
+    useState(false);
 
   const [
     savingResponsible,
     setSavingResponsible,
   ] = useState(false);
 
-  const [
-    savingFunnel,
-    setSavingFunnel,
-  ] = useState(false);
+  const [savingFunnel, setSavingFunnel] =
+    useState(false);
+
+  const [savingStatus, setSavingStatus] =
+    useState(false);
+
+  const [search, setSearch] =
+    useState("");
 
   const [
-    search,
-    setSearch,
-  ] = useState("");
+    conversationFilter,
+    setConversationFilter,
+  ] = useState<ConversationFilter>("all");
 
-  const [
-    messageText,
-    setMessageText,
-  ] = useState("");
+  const [messageText, setMessageText] =
+    useState("");
 
   const [
     quickMenuOpen,
     setQuickMenuOpen,
   ] = useState(false);
 
-  const [
-    quickSearch,
-    setQuickSearch,
-  ] = useState("");
+  const [quickSearch, setQuickSearch] =
+    useState("");
 
-  const [
-    error,
-    setError,
-  ] = useState<string | null>(
-    null
-  );
+  const [error, setError] =
+    useState<string | null>(null);
 
-  const [
-    success,
-    setSuccess,
-  ] = useState<string | null>(
-    null
-  );
+  const [success, setSuccess] =
+    useState<string | null>(null);
 
   const messagesEndRef =
-    useRef<HTMLDivElement | null>(
-      null
-    );
+    useRef<HTMLDivElement | null>(null);
 
   const textareaRef =
-    useRef<HTMLTextAreaElement | null>(
-      null
-    );
+    useRef<HTMLTextAreaElement | null>(null);
 
   const selectedIdRef =
-    useRef<string | null>(
-      null
-    );
+    useRef<string | null>(null);
 
-  useEffect(
-    () => {
-      selectedIdRef.current =
-        selectedId;
-    },
-    [
-      selectedId,
-    ]
-  );
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
 
   const pegarToken =
-    useCallback(
-      async () => {
-        const {
-          data,
-          error:
-            sessionError,
-        } =
-          await supabase.auth
-            .getSession();
+    useCallback(async () => {
+      const {
+        data,
+        error: sessionError,
+      } =
+        await supabase.auth.getSession();
 
-        if (
-          sessionError
-        ) {
-          throw new Error(
-            sessionError.message
-          );
-        }
+      if (sessionError) {
+        throw new Error(
+          sessionError.message
+        );
+      }
 
-        const token =
-          data.session
-            ?.access_token;
+      const token =
+        data.session?.access_token;
 
-        if (!token) {
-          throw new Error(
-            "Sessão não encontrada."
-          );
-        }
+      if (!token) {
+        throw new Error(
+          "Sessão não encontrada."
+        );
+      }
 
-        return token;
-      },
-      []
-    );
+      return token;
+    }, []);
 
   const carregarOpcoes =
-    useCallback(
-      async () => {
-        try {
-          const {
-            data: authData,
-            error: authError,
-          } =
-            await supabase.auth
-              .getUser();
+    useCallback(async () => {
+      try {
+        const {
+          data: authData,
+          error: authError,
+        } =
+          await supabase.auth.getUser();
 
-          if (
-            authError ||
-            !authData.user
-          ) {
-            throw new Error(
-              "Usuário não autenticado."
-            );
-          }
+        if (
+          authError ||
+          !authData.user
+        ) {
+          throw new Error(
+            "Usuário não autenticado."
+          );
+        }
 
-          const {
-            data: crmUser,
-            error:
-              crmUserError,
-          } =
-            await supabase
+        const {
+          data: crmUser,
+          error: crmUserError,
+        } =
+          await supabase
+            .from("User")
+            .select(
+              "id, name, email, role, companyId, isActive"
+            )
+            .eq(
+              "id",
+              authData.user.id
+            )
+            .maybeSingle();
+
+        if (
+          crmUserError ||
+          !crmUser
+        ) {
+          throw new Error(
+            crmUserError?.message ||
+              "Usuário não encontrado."
+          );
+        }
+
+        setCurrentUser({
+          id: crmUser.id,
+          role: crmUser.role,
+        });
+
+        const token =
+          await pegarToken();
+
+        const [
+          usersResult,
+          stepsResult,
+          quickResponse,
+        ] =
+          await Promise.all([
+            supabase
               .from("User")
               .select(
                 "id, name, email, role, companyId, isActive"
               )
               .eq(
-                "id",
-                authData.user.id
+                "companyId",
+                crmUser.companyId
               )
-              .maybeSingle();
-
-          if (
-            crmUserError ||
-            !crmUser
-          ) {
-            throw new Error(
-              crmUserError
-                ?.message ||
-                "Usuário não encontrado."
-            );
-          }
-
-          setCurrentUser({
-            id:
-              crmUser.id,
-
-            role:
-              crmUser.role,
-          });
-
-          const token =
-            await pegarToken();
-
-          const [
-            usersResult,
-            stepsResult,
-            quickResponse,
-          ] =
-            await Promise.all([
-              supabase
-                .from("User")
-                .select(
-                  "id, name, email, role, companyId, isActive"
-                )
-                .eq(
-                  "companyId",
-                  crmUser.companyId
-                )
-                .eq(
-                  "isActive",
-                  true
-                )
-                .order(
-                  "name",
-                  {
-                    ascending:
-                      true,
-                  }
-                ),
-
-              supabase
-                .from("FunnelStep")
-                .select(
-                  "id, name, order, companyId, stageType"
-                )
-                .eq(
-                  "companyId",
-                  crmUser.companyId
-                )
-                .order(
-                  "order",
-                  {
-                    ascending:
-                      true,
-                  }
-                ),
-
-              fetch(
-                "/api/quick-messages?active=true",
+              .eq(
+                "isActive",
+                true
+              )
+              .order(
+                "name",
                 {
-                  method: "GET",
-
-                  headers: {
-                    Authorization:
-                      `Bearer ${token}`,
-                  },
-
-                  cache:
-                    "no-store",
+                  ascending: true,
                 }
               ),
-            ]);
 
-          if (
-            usersResult.error
-          ) {
-            throw new Error(
-              usersResult.error
-                .message
-            );
-          }
+            supabase
+              .from("FunnelStep")
+              .select(
+                "id, name, order, companyId, stageType"
+              )
+              .eq(
+                "companyId",
+                crmUser.companyId
+              )
+              .order(
+                "order",
+                {
+                  ascending: true,
+                }
+              ),
 
-          if (
-            stepsResult.error
-          ) {
-            throw new Error(
-              stepsResult.error
-                .message
-            );
-          }
+            fetch(
+              "/api/quick-messages?active=true",
+              {
+                method: "GET",
 
-          setTeamUsers(
-            (
-              usersResult.data ||
-              []
-            ) as TeamUser[]
-          );
+                headers: {
+                  Authorization:
+                    `Bearer ${token}`,
+                },
 
-          setFunnelSteps(
-            (
-              stepsResult.data ||
-              []
-            ) as FunnelStep[]
-          );
+                cache: "no-store",
+              }
+            ),
+          ]);
 
-          const quickData =
-            await quickResponse.json();
-
-          if (
-            !quickResponse.ok
-          ) {
-            throw new Error(
-              quickData.error ||
-                "Erro ao carregar mensagens rápidas."
-            );
-          }
-
-          setQuickMessages(
-            (
-              quickData.quickMessages ||
-              []
-            ) as QuickMessage[]
-          );
-        } catch (
-          err
-        ) {
-          console.error(
-            "Erro ao carregar opções do atendimento:",
-            err
+        if (usersResult.error) {
+          throw new Error(
+            usersResult.error.message
           );
         }
-      },
-      [
-        pegarToken,
-      ]
-    );
+
+        if (stepsResult.error) {
+          throw new Error(
+            stepsResult.error.message
+          );
+        }
+
+        setTeamUsers(
+          (
+            usersResult.data ||
+            []
+          ) as TeamUser[]
+        );
+
+        setFunnelSteps(
+          (
+            stepsResult.data ||
+            []
+          ) as FunnelStep[]
+        );
+
+        const quickData =
+          await quickResponse.json();
+
+        if (!quickResponse.ok) {
+          throw new Error(
+            quickData.error ||
+              "Erro ao carregar mensagens rápidas."
+          );
+        }
+
+        setQuickMessages(
+          (
+            quickData.quickMessages ||
+            []
+          ) as QuickMessage[]
+        );
+      } catch (err) {
+        console.error(
+          "Erro ao carregar opções do atendimento:",
+          err
+        );
+      }
+    }, [pegarToken]);
 
   const carregarLista =
     useCallback(
       async (
-        mostrarLoading =
-          false
+        mostrarLoading = false
       ) => {
         try {
-          if (
-            mostrarLoading
-          ) {
-            setRefreshing(
-              true
-            );
+          if (mostrarLoading) {
+            setRefreshing(true);
           }
 
           const token =
@@ -763,17 +599,14 @@ export default function WhatsAppPage() {
                     `Bearer ${token}`,
                 },
 
-                cache:
-                  "no-store",
+                cache: "no-store",
               }
             );
 
           const data =
             await response.json();
 
-          if (
-            !response.ok
-          ) {
+          if (!response.ok) {
             throw new Error(
               data.error ||
                 "Erro ao carregar conversas."
@@ -786,21 +619,16 @@ export default function WhatsAppPage() {
               []
             ) as Conversation[];
 
-          setConversations(
-            lista
-          );
+          setConversations(lista);
 
-          if (
-            data.currentUser
-          ) {
+          if (data.currentUser) {
             setCurrentUser(
               data.currentUser
             );
           }
 
           if (
-            lista.length >
-              0 &&
+            lista.length > 0 &&
             !selectedIdRef.current
           ) {
             setSelectedId(
@@ -811,9 +639,7 @@ export default function WhatsAppPage() {
           if (
             selectedIdRef.current &&
             !lista.some(
-              (
-                item
-              ) =>
+              (item) =>
                 item.id ===
                 selectedIdRef.current
             ) &&
@@ -826,12 +652,9 @@ export default function WhatsAppPage() {
                 null
             );
           }
-        } catch (
-          err
-        ) {
+        } catch (err) {
           setError(
-            err instanceof
-              Error
+            err instanceof Error
               ? err.message
               : "Erro ao carregar conversas."
           );
@@ -840,16 +663,13 @@ export default function WhatsAppPage() {
           setRefreshing(false);
         }
       },
-      [
-        pegarToken,
-      ]
+      [pegarToken]
     );
 
   const marcarComoLida =
     useCallback(
       async (
-        conversationId:
-          string
+        conversationId: string
       ) => {
         try {
           const token =
@@ -859,8 +679,7 @@ export default function WhatsAppPage() {
             await fetch(
               "/api/whatsapp/conversations",
               {
-                method:
-                  "PATCH",
+                method: "PATCH",
 
                 headers: {
                   "Content-Type":
@@ -880,27 +699,19 @@ export default function WhatsAppPage() {
               }
             );
 
-          if (
-            !response.ok
-          ) {
+          if (!response.ok) {
             return;
           }
 
           setConversations(
-            (
-              current
-            ) =>
+            (current) =>
               current.map(
-                (
-                  conversation
-                ) =>
+                (conversation) =>
                   conversation.id ===
                   conversationId
                     ? {
                         ...conversation,
-
-                        unreadCount:
-                          0,
+                        unreadCount: 0,
                       }
                     : conversation
               )
@@ -909,26 +720,19 @@ export default function WhatsAppPage() {
           return;
         }
       },
-      [
-        pegarToken,
-      ]
+      [pegarToken]
     );
 
   const carregarDetalhe =
     useCallback(
       async (
-        conversationId:
-          string,
+        conversationId: string,
         marcarLida = true,
         mostrarLoading = true
       ) => {
         try {
-          if (
-            mostrarLoading
-          ) {
-            setLoadingDetail(
-              true
-            );
+          if (mostrarLoading) {
+            setLoadingDetail(true);
           }
 
           const token =
@@ -945,17 +749,14 @@ export default function WhatsAppPage() {
                     `Bearer ${token}`,
                 },
 
-                cache:
-                  "no-store",
+                cache: "no-store",
               }
             );
 
           const data =
             await response.json();
 
-          if (
-            !response.ok
-          ) {
+          if (!response.ok) {
             throw new Error(
               data.error ||
                 "Erro ao abrir conversa."
@@ -973,9 +774,7 @@ export default function WhatsAppPage() {
             data as ConversationDetail
           );
 
-          if (
-            data.currentUser
-          ) {
+          if (data.currentUser) {
             setCurrentUser(
               data.currentUser
             );
@@ -994,22 +793,15 @@ export default function WhatsAppPage() {
               conversationId
             );
           }
-        } catch (
-          err
-        ) {
+        } catch (err) {
           setError(
-            err instanceof
-              Error
+            err instanceof Error
               ? err.message
               : "Erro ao abrir conversa."
           );
         } finally {
-          if (
-            mostrarLoading
-          ) {
-            setLoadingDetail(
-              false
-            );
+          if (mostrarLoading) {
+            setLoadingDetail(false);
           }
         }
       },
@@ -1036,10 +828,7 @@ export default function WhatsAppPage() {
         }
 
         try {
-          setSavingResponsible(
-            true
-          );
-
+          setSavingResponsible(true);
           setError(null);
 
           const token =
@@ -1049,8 +838,7 @@ export default function WhatsAppPage() {
             await fetch(
               "/api/whatsapp/conversations",
               {
-                method:
-                  "PATCH",
+                method: "PATCH",
 
                 headers: {
                   "Content-Type":
@@ -1075,26 +863,19 @@ export default function WhatsAppPage() {
           const data =
             await response.json();
 
-          if (
-            !response.ok
-          ) {
+          if (!response.ok) {
             throw new Error(
               data.error ||
                 "Não foi possível alterar o responsável."
             );
           }
 
-          if (
-            data.contact
-          ) {
+          if (data.contact) {
             setDetail(
-              (
-                current
-              ) =>
+              (current) =>
                 current
                   ? {
                       ...current,
-
                       contact:
                         data.contact,
                     }
@@ -1102,18 +883,13 @@ export default function WhatsAppPage() {
             );
 
             setConversations(
-              (
-                current
-              ) =>
+              (current) =>
                 current.map(
-                  (
-                    conversation
-                  ) =>
+                  (conversation) =>
                     conversation.id ===
                     conversationId
                       ? {
                           ...conversation,
-
                           contact:
                             data.contact,
                         }
@@ -1129,24 +905,18 @@ export default function WhatsAppPage() {
           );
 
           window.setTimeout(
-            () => {
-              setSuccess(null);
-            },
+            () =>
+              setSuccess(null),
             1800
           );
-        } catch (
-          err
-        ) {
+        } catch (err) {
           setError(
-            err instanceof
-              Error
+            err instanceof Error
               ? err.message
               : "Erro ao alterar responsável."
           );
         } finally {
-          setSavingResponsible(
-            false
-          );
+          setSavingResponsible(false);
         }
       },
       [
@@ -1158,8 +928,7 @@ export default function WhatsAppPage() {
   const atualizarEtapa =
     useCallback(
       async (
-        funnelStepId:
-          string
+        funnelStepId: string
       ) => {
         const conversationId =
           selectedIdRef.current;
@@ -1173,10 +942,7 @@ export default function WhatsAppPage() {
         }
 
         try {
-          setSavingFunnel(
-            true
-          );
-
+          setSavingFunnel(true);
           setError(null);
 
           const token =
@@ -1186,8 +952,7 @@ export default function WhatsAppPage() {
             await fetch(
               "/api/whatsapp/conversations",
               {
-                method:
-                  "PATCH",
+                method: "PATCH",
 
                 headers: {
                   "Content-Type":
@@ -1212,26 +977,19 @@ export default function WhatsAppPage() {
           const data =
             await response.json();
 
-          if (
-            !response.ok
-          ) {
+          if (!response.ok) {
             throw new Error(
               data.error ||
                 "Não foi possível alterar a etapa."
             );
           }
 
-          if (
-            data.contact
-          ) {
+          if (data.contact) {
             setDetail(
-              (
-                current
-              ) =>
+              (current) =>
                 current
                   ? {
                       ...current,
-
                       contact:
                         data.contact,
                     }
@@ -1239,18 +997,13 @@ export default function WhatsAppPage() {
             );
 
             setConversations(
-              (
-                current
-              ) =>
+              (current) =>
                 current.map(
-                  (
-                    conversation
-                  ) =>
+                  (conversation) =>
                     conversation.id ===
                     conversationId
                       ? {
                           ...conversation,
-
                           contact:
                             data.contact,
                         }
@@ -1264,24 +1017,18 @@ export default function WhatsAppPage() {
           );
 
           window.setTimeout(
-            () => {
-              setSuccess(null);
-            },
+            () =>
+              setSuccess(null),
             1800
           );
-        } catch (
-          err
-        ) {
+        } catch (err) {
           setError(
-            err instanceof
-              Error
+            err instanceof Error
               ? err.message
               : "Erro ao alterar etapa."
           );
         } finally {
-          setSavingFunnel(
-            false
-          );
+          setSavingFunnel(false);
         }
       },
       [
@@ -1290,23 +1037,149 @@ export default function WhatsAppPage() {
       ]
     );
 
+  const atualizarStatus =
+    useCallback(
+      async (
+        status: ConversationStatus
+      ) => {
+        const conversationId =
+          selectedIdRef.current;
+
+        if (
+          !conversationId ||
+          savingStatus
+        ) {
+          return;
+        }
+
+        try {
+          setSavingStatus(true);
+          setError(null);
+
+          const token =
+            await pegarToken();
+
+          const response =
+            await fetch(
+              "/api/whatsapp/conversations",
+              {
+                method: "PATCH",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+
+                  Authorization:
+                    `Bearer ${token}`,
+                },
+
+                body:
+                  JSON.stringify({
+                    action:
+                      "update_status",
+
+                    conversationId,
+
+                    status,
+                  }),
+              }
+            );
+
+          const data =
+            await response.json();
+
+          if (!response.ok) {
+            throw new Error(
+              data.error ||
+                "Não foi possível alterar o status."
+            );
+          }
+
+          if (data.conversation) {
+            setDetail(
+              (current) =>
+                current
+                  ? {
+                      ...current,
+
+                      conversation: {
+                        ...current.conversation,
+
+                        status:
+                          data
+                            .conversation
+                            .status,
+
+                        updatedAt:
+                          data
+                            .conversation
+                            .updatedAt,
+                      },
+                    }
+                  : current
+            );
+
+            setConversations(
+              (current) =>
+                current.map(
+                  (conversation) =>
+                    conversation.id ===
+                    conversationId
+                      ? {
+                          ...conversation,
+
+                          status:
+                            data
+                              .conversation
+                              .status,
+
+                          updatedAt:
+                            data
+                              .conversation
+                              .updatedAt,
+                        }
+                      : conversation
+                )
+            );
+          }
+
+          setSuccess(
+            data.message ||
+              "Status atualizado."
+          );
+
+          window.setTimeout(
+            () =>
+              setSuccess(null),
+            1800
+          );
+        } catch (err) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Erro ao alterar status."
+          );
+        } finally {
+          setSavingStatus(false);
+        }
+      },
+      [
+        pegarToken,
+        savingStatus,
+      ]
+    );
+
   const usarMensagemRapida =
     useCallback(
       (
-        item:
-          QuickMessage
+        item: QuickMessage
       ) => {
         setMessageText(
           item.body
         );
 
-        setQuickMenuOpen(
-          false
-        );
-
-        setQuickSearch(
-          ""
-        );
+        setQuickMenuOpen(false);
+        setQuickSearch("");
 
         window.setTimeout(
           () => {
@@ -1322,28 +1195,19 @@ export default function WhatsAppPage() {
   const alterarTextoMensagem =
     useCallback(
       (
-        value:
-          string
+        value: string
       ) => {
         const texto =
           value.trim();
 
         if (
-          texto.startsWith(
-            "/"
-          ) &&
-          !texto.includes(
-            " "
-          ) &&
-          !texto.includes(
-            "\n"
-          )
+          texto.startsWith("/") &&
+          !texto.includes(" ") &&
+          !texto.includes("\n")
         ) {
           const mensagemEncontrada =
             quickMessages.find(
-              (
-                item
-              ) =>
+              (item) =>
                 item.shortcut
                   ?.toLowerCase() ===
                 texto.toLowerCase()
@@ -1356,33 +1220,19 @@ export default function WhatsAppPage() {
               mensagemEncontrada.body
             );
 
-            setQuickMenuOpen(
-              false
-            );
-
-            setQuickSearch(
-              ""
-            );
+            setQuickMenuOpen(false);
+            setQuickSearch("");
 
             return;
           }
 
-          setQuickSearch(
-            texto
-          );
-
-          setQuickMenuOpen(
-            true
-          );
+          setQuickSearch(texto);
+          setQuickMenuOpen(true);
         }
 
-        setMessageText(
-          value
-        );
+        setMessageText(value);
       },
-      [
-        quickMessages,
-      ]
+      [quickMessages]
     );
 
   const enviarMensagem =
@@ -1414,8 +1264,7 @@ export default function WhatsAppPage() {
             await fetch(
               "/api/whatsapp/messages",
               {
-                method:
-                  "POST",
+                method: "POST",
 
                 headers: {
                   "Content-Type":
@@ -1436,9 +1285,7 @@ export default function WhatsAppPage() {
           const data =
             await response.json();
 
-          if (
-            !response.ok
-          ) {
+          if (!response.ok) {
             const metaCode =
               data.metaCode
                 ? ` Código Meta: ${data.metaCode}.`
@@ -1453,10 +1300,7 @@ export default function WhatsAppPage() {
           }
 
           setMessageText("");
-
-          setQuickMenuOpen(
-            false
-          );
+          setQuickMenuOpen(false);
 
           setSuccess(
             "Mensagem enviada."
@@ -1471,9 +1315,8 @@ export default function WhatsAppPage() {
           await carregarLista();
 
           window.setTimeout(
-            () => {
-              setSuccess(null);
-            },
+            () =>
+              setSuccess(null),
             1800
           );
 
@@ -1484,12 +1327,9 @@ export default function WhatsAppPage() {
             },
             50
           );
-        } catch (
-          err
-        ) {
+        } catch (err) {
           setError(
-            err instanceof
-              Error
+            err instanceof Error
               ? err.message
               : "Erro ao enviar mensagem."
           );
@@ -1519,19 +1359,15 @@ export default function WhatsAppPage() {
       KeyboardEvent<HTMLTextAreaElement>
   ) => {
     if (
-      event.key ===
-        "Escape"
+      event.key === "Escape"
     ) {
-      setQuickMenuOpen(
-        false
-      );
+      setQuickMenuOpen(false);
 
       return;
     }
 
     if (
-      event.key ===
-        "Enter" &&
+      event.key === "Enter" &&
       !event.shiftKey
     ) {
       event.preventDefault();
@@ -1540,199 +1376,228 @@ export default function WhatsAppPage() {
     }
   };
 
-  useEffect(
-    () => {
-      void Promise.all([
-        carregarLista(),
-        carregarOpcoes(),
-      ]);
-    },
-    [
-      carregarLista,
-      carregarOpcoes,
-    ]
-  );
+  useEffect(() => {
+    void Promise.all([
+      carregarLista(),
+      carregarOpcoes(),
+    ]);
+  }, [
+    carregarLista,
+    carregarOpcoes,
+  ]);
 
-  useEffect(
-    () => {
-      if (!selectedId) {
-        setDetail(null);
-
-        return;
-      }
-
+  useEffect(() => {
+    if (!selectedId) {
       setDetail(null);
-      setMessageText("");
-      setQuickMenuOpen(false);
-      setQuickSearch("");
 
-      void carregarDetalhe(
-        selectedId,
-        true,
-        true
-      );
-    },
-    [
+      return;
+    }
+
+    setDetail(null);
+    setMessageText("");
+    setQuickMenuOpen(false);
+    setQuickSearch("");
+
+    void carregarDetalhe(
       selectedId,
-      carregarDetalhe,
-    ]
-  );
+      true,
+      true
+    );
+  }, [
+    selectedId,
+    carregarDetalhe,
+  ]);
 
-  useEffect(
-    () => {
-      const interval =
-        window.setInterval(
-          () => {
-            if (
-              document
-                .visibilityState !==
-              "visible"
-            ) {
-              return;
-            }
+  useEffect(() => {
+    const interval =
+      window.setInterval(
+        () => {
+          if (
+            document.visibilityState !==
+            "visible"
+          ) {
+            return;
+          }
 
-            void carregarLista();
+          void carregarLista();
 
-            const currentId =
-              selectedIdRef.current;
+          const currentId =
+            selectedIdRef.current;
 
-            if (
-              currentId &&
-              !sending
-            ) {
-              void carregarDetalhe(
-                currentId,
-                false,
-                false
-              );
-            }
-          },
-          5000
-        );
-
-      return () => {
-        window.clearInterval(
-          interval
-        );
-      };
-    },
-    [
-      carregarDetalhe,
-      carregarLista,
-      sending,
-    ]
-  );
-
-  useEffect(
-    () => {
-      messagesEndRef.current
-        ?.scrollIntoView({
-          behavior:
-            "smooth",
-        });
-    },
-    [
-      detail?.messages,
-    ]
-  );
-
-  const filteredConversations =
-    useMemo(
-      () => {
-        const term =
-          search
-            .trim()
-            .toLowerCase();
-
-        if (!term) {
-          return conversations;
-        }
-
-        return conversations.filter(
-          (
-            conversation
-          ) => {
-            const nome =
-              conversation
-                .contact
-                ?.name
-                ?.toLowerCase() ||
-              "";
-
-            const telefone =
-              conversation
-                .contact
-                ?.phone
-                ?.toLowerCase() ||
-              "";
-
-            const ultimaMensagem =
-              resumoMensagem(
-                conversation
-                  .lastMessage
-              ).toLowerCase();
-
-            return (
-              nome.includes(
-                term
-              ) ||
-              telefone.includes(
-                term
-              ) ||
-              ultimaMensagem.includes(
-                term
-              )
+          if (
+            currentId &&
+            !sending
+          ) {
+            void carregarDetalhe(
+              currentId,
+              false,
+              false
             );
           }
-        );
-      },
-      [
-        conversations,
-        search,
-      ]
-    );
+        },
+        5000
+      );
+
+    return () => {
+      window.clearInterval(
+        interval
+      );
+    };
+  }, [
+    carregarDetalhe,
+    carregarLista,
+    sending,
+  ]);
+
+  useEffect(() => {
+    messagesEndRef.current
+      ?.scrollIntoView({
+        behavior: "smooth",
+      });
+  }, [
+    detail?.messages,
+  ]);
+
+  const contadores =
+    useMemo(() => {
+      return {
+        all:
+          conversations.length,
+
+        unread:
+          conversations.filter(
+            (item) =>
+              Number(
+                item.unreadCount ||
+                  0
+              ) > 0
+          ).length,
+
+        open:
+          conversations.filter(
+            (item) =>
+              item.status ===
+              "open"
+          ).length,
+
+        waiting:
+          conversations.filter(
+            (item) =>
+              item.status ===
+              "waiting"
+          ).length,
+
+        closed:
+          conversations.filter(
+            (item) =>
+              item.status ===
+              "closed"
+          ).length,
+      };
+    }, [conversations]);
+
+  const filteredConversations =
+    useMemo(() => {
+      let lista =
+        conversations;
+
+      if (
+        conversationFilter ===
+        "unread"
+      ) {
+        lista =
+          lista.filter(
+            (conversation) =>
+              Number(
+                conversation.unreadCount ||
+                  0
+              ) > 0
+          );
+      } else if (
+        conversationFilter !==
+        "all"
+      ) {
+        lista =
+          lista.filter(
+            (conversation) =>
+              conversation.status ===
+              conversationFilter
+          );
+      }
+
+      const term =
+        search
+          .trim()
+          .toLowerCase();
+
+      if (!term) {
+        return lista;
+      }
+
+      return lista.filter(
+        (conversation) => {
+          const nome =
+            conversation
+              .contact
+              ?.name
+              ?.toLowerCase() ||
+            "";
+
+          const telefone =
+            conversation
+              .contact
+              ?.phone
+              ?.toLowerCase() ||
+            "";
+
+          const ultimaMensagem =
+            resumoMensagem(
+              conversation.lastMessage
+            ).toLowerCase();
+
+          return (
+            nome.includes(term) ||
+            telefone.includes(term) ||
+            ultimaMensagem.includes(term)
+          );
+        }
+      );
+    }, [
+      conversations,
+      conversationFilter,
+      search,
+    ]);
 
   const quickMessagesFiltradas =
-    useMemo(
-      () => {
-        const term =
-          quickSearch
-            .trim()
-            .toLowerCase();
+    useMemo(() => {
+      const term =
+        quickSearch
+          .trim()
+          .toLowerCase();
 
-        if (!term) {
-          return quickMessages;
-        }
+      if (!term) {
+        return quickMessages;
+      }
 
-        return quickMessages.filter(
+      return quickMessages.filter(
+        (item) =>
+          item.title
+            .toLowerCase()
+            .includes(term) ||
+          item.body
+            .toLowerCase()
+            .includes(term) ||
           (
-            item
-          ) =>
-            item.title
-              .toLowerCase()
-              .includes(
-                term
-              ) ||
-            item.body
-              .toLowerCase()
-              .includes(
-                term
-              ) ||
-            (
-              item.shortcut ||
-              ""
-            )
-              .toLowerCase()
-              .includes(
-                term
-              )
-        );
-      },
-      [
-        quickMessages,
-        quickSearch,
-      ]
-    );
+            item.shortcut ||
+            ""
+          )
+            .toLowerCase()
+            .includes(term)
+      );
+    }, [
+      quickMessages,
+      quickSearch,
+    ]);
 
   const totalUnread =
     useMemo(
@@ -1749,9 +1614,7 @@ export default function WhatsAppPage() {
             ),
           0
         ),
-      [
-        conversations,
-      ]
+      [conversations]
     );
 
   const podeAtribuir =
@@ -1767,14 +1630,44 @@ export default function WhatsAppPage() {
   const responsavelAtual =
     detail
       ? teamUsers.find(
-          (
-            user
-          ) =>
+          (user) =>
             user.id ===
             detail.contact
               .responsibleId
         )
       : undefined;
+
+  const filtros: {
+    key: ConversationFilter;
+    label: string;
+    count: number;
+  }[] = [
+    {
+      key: "all",
+      label: "Todas",
+      count: contadores.all,
+    },
+    {
+      key: "unread",
+      label: "Não lidas",
+      count: contadores.unread,
+    },
+    {
+      key: "open",
+      label: "Em atendimento",
+      count: contadores.open,
+    },
+    {
+      key: "waiting",
+      label: "Aguardando",
+      count: contadores.waiting,
+    },
+    {
+      key: "closed",
+      label: "Finalizadas",
+      count: contadores.closed,
+    },
+  ];
 
   if (loading) {
     return (
@@ -1792,8 +1685,9 @@ export default function WhatsAppPage() {
 
   return (
     <div className="flex h-[calc(100vh-2rem)] min-h-[650px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      <section className="flex w-[360px] min-w-[310px] flex-col border-r border-slate-200">
-        <div className="border-b border-slate-200 px-5 pb-4 pt-5">
+      {/* LISTA DE CONVERSAS */}
+      <section className="flex w-[380px] min-w-[320px] flex-col border-r border-slate-200">
+        <div className="border-b border-slate-200 px-4 pb-4 pt-5">
           <div className="mb-4 flex items-start justify-between gap-4">
             <div>
               <div className="flex items-center gap-2">
@@ -1801,8 +1695,7 @@ export default function WhatsAppPage() {
                   WhatsApp
                 </h1>
 
-                {totalUnread >
-                  0 && (
+                {totalUnread > 0 && (
                   <span className="flex min-w-6 items-center justify-center rounded-full bg-slate-900 px-2 py-0.5 text-xs font-semibold text-white">
                     {totalUnread}
                   </span>
@@ -1827,9 +1720,7 @@ export default function WhatsAppPage() {
                   true
                 )
               }
-              disabled={
-                refreshing
-              }
+              disabled={refreshing}
               className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
             >
               {refreshing
@@ -1840,9 +1731,7 @@ export default function WhatsAppPage() {
 
           <input
             value={search}
-            onChange={(
-              event
-            ) =>
+            onChange={(event) =>
               setSearch(
                 event.target.value
               )
@@ -1850,6 +1739,46 @@ export default function WhatsAppPage() {
             placeholder="Buscar conversa..."
             className="w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-300 focus:bg-white"
           />
+
+          {/* FILTROS */}
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+            {filtros.map(
+              (filtro) => {
+                const ativo =
+                  conversationFilter ===
+                  filtro.key;
+
+                return (
+                  <button
+                    key={filtro.key}
+                    type="button"
+                    onClick={() =>
+                      setConversationFilter(
+                        filtro.key
+                      )
+                    }
+                    className={`shrink-0 rounded-full border px-3 py-1.5 text-[11px] font-medium transition ${
+                      ativo
+                        ? "border-slate-900 bg-slate-900 text-white"
+                        : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50"
+                    }`}
+                  >
+                    {filtro.label}
+
+                    <span
+                      className={`ml-1.5 ${
+                        ativo
+                          ? "text-slate-300"
+                          : "text-slate-400"
+                      }`}
+                    >
+                      {filtro.count}
+                    </span>
+                  </button>
+                );
+              }
+            )}
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -1864,13 +1793,15 @@ export default function WhatsAppPage() {
                 <p className="text-sm font-medium text-slate-700">
                   Nenhuma conversa
                 </p>
+
+                <p className="mt-1 text-xs text-slate-400">
+                  Nenhuma conversa corresponde ao filtro atual.
+                </p>
               </div>
             </div>
           ) : (
             filteredConversations.map(
-              (
-                conversation
-              ) => {
+              (conversation) => {
                 const ativo =
                   selectedId ===
                   conversation.id;
@@ -1902,15 +1833,19 @@ export default function WhatsAppPage() {
                       {conversation.contact
                         ?.name
                         ?.trim()
-                        ?.charAt(
-                          0
-                        ) ||
+                        ?.charAt(0) ||
                         "?"}
                     </div>
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-sm font-medium text-slate-800">
+                        <p
+                          className={`truncate text-sm ${
+                            unread > 0
+                              ? "font-semibold text-slate-900"
+                              : "font-medium text-slate-800"
+                          }`}
+                        >
                           {conversation
                             .contact
                             ?.name ||
@@ -1948,12 +1883,23 @@ export default function WhatsAppPage() {
                           )}
                         </p>
 
-                        {unread >
-                          0 && (
+                        {unread > 0 && (
                           <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-slate-900 px-1.5 text-[10px] font-semibold text-white">
                             {unread}
                           </span>
                         )}
+                      </div>
+
+                      <div className="mt-2">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-[9px] font-medium ${classeStatusAtendimento(
+                            conversation.status
+                          )}`}
+                        >
+                          {nomeStatusAtendimento(
+                            conversation.status
+                          )}
+                        </span>
                       </div>
                     </div>
                   </button>
@@ -1964,6 +1910,7 @@ export default function WhatsAppPage() {
         </div>
       </section>
 
+      {/* CONVERSA */}
       <section className="flex min-w-0 flex-1 flex-col bg-slate-50">
         {!selectedId ? (
           <div className="flex h-full items-center justify-center">
@@ -1980,15 +1927,14 @@ export default function WhatsAppPage() {
           </div>
         ) : detail ? (
           <>
+            {/* CABEÇALHO */}
             <div className="shrink-0 border-b border-slate-200 bg-white">
               <div className="flex min-h-[72px] items-center justify-between gap-5 px-5 py-3">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-200 text-sm font-semibold uppercase text-slate-600">
                     {detail.contact.name
                       ?.trim()
-                      ?.charAt(
-                        0
-                      ) ||
+                      ?.charAt(0) ||
                       "?"}
                   </div>
 
@@ -2008,12 +1954,24 @@ export default function WhatsAppPage() {
                   </div>
                 </div>
 
-                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500">
-                  WhatsApp
+                <span
+                  className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium ${classeStatusAtendimento(
+                    detail
+                      .conversation
+                      .status
+                  )}`}
+                >
+                  {nomeStatusAtendimento(
+                    detail
+                      .conversation
+                      .status
+                  )}
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 gap-3 border-t border-slate-100 px-5 py-3 md:grid-cols-2">
+              {/* CONTROLES */}
+              <div className="grid grid-cols-1 gap-3 border-t border-slate-100 px-5 py-3 lg:grid-cols-3">
+                {/* RESPONSÁVEL */}
                 <div>
                   <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
                     Responsável
@@ -2030,9 +1988,7 @@ export default function WhatsAppPage() {
                       disabled={
                         savingResponsible
                       }
-                      onChange={(
-                        event
-                      ) =>
+                      onChange={(event) =>
                         void atualizarResponsavel(
                           event
                             .target
@@ -2040,16 +1996,14 @@ export default function WhatsAppPage() {
                             null
                         )
                       }
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400 disabled:bg-slate-50"
                     >
                       <option value="">
                         Sem responsável
                       </option>
 
                       {teamUsers.map(
-                        (
-                          user
-                        ) => (
+                        (user) => (
                           <option
                             key={
                               user.id
@@ -2075,6 +2029,7 @@ export default function WhatsAppPage() {
                   )}
                 </div>
 
+                {/* FUNIL */}
                 <div>
                   <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
                     Etapa do funil
@@ -2090,21 +2045,17 @@ export default function WhatsAppPage() {
                     disabled={
                       savingFunnel
                     }
-                    onChange={(
-                      event
-                    ) =>
+                    onChange={(event) =>
                       void atualizarEtapa(
                         event
                           .target
                           .value
                       )
                     }
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400 disabled:bg-slate-50"
                   >
                     {funnelSteps.map(
-                      (
-                        step
-                      ) => (
+                      (step) => (
                         <option
                           key={
                             step.id
@@ -2119,9 +2070,48 @@ export default function WhatsAppPage() {
                     )}
                   </select>
                 </div>
+
+                {/* STATUS */}
+                <div>
+                  <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
+                    Status do atendimento
+                  </label>
+
+                  <select
+                    value={
+                      detail
+                        .conversation
+                        .status
+                    }
+                    disabled={
+                      savingStatus
+                    }
+                    onChange={(event) =>
+                      void atualizarStatus(
+                        event
+                          .target
+                          .value as ConversationStatus
+                      )
+                    }
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400 disabled:bg-slate-50"
+                  >
+                    <option value="open">
+                      Em atendimento
+                    </option>
+
+                    <option value="waiting">
+                      Aguardando cliente
+                    </option>
+
+                    <option value="closed">
+                      Finalizada
+                    </option>
+                  </select>
+                </div>
               </div>
             </div>
 
+            {/* MENSAGENS */}
             <div className="flex-1 overflow-y-auto px-5 py-6">
               <div className="mx-auto flex max-w-4xl flex-col gap-2">
                 {detail.messages.map(
@@ -2233,6 +2223,7 @@ export default function WhatsAppPage() {
               </div>
             </div>
 
+            {/* ENVIO */}
             <form
               onSubmit={
                 handleSubmit
@@ -2246,9 +2237,7 @@ export default function WhatsAppPage() {
                       value={
                         quickSearch
                       }
-                      onChange={(
-                        event
-                      ) =>
+                      onChange={(event) =>
                         setQuickSearch(
                           event
                             .target
@@ -2271,9 +2260,7 @@ export default function WhatsAppPage() {
                       </div>
                     ) : (
                       quickMessagesFiltradas.map(
-                        (
-                          item
-                        ) => (
+                        (item) => (
                           <button
                             key={
                               item.id
@@ -2321,15 +2308,11 @@ export default function WhatsAppPage() {
                     type="button"
                     onClick={() => {
                       setQuickMenuOpen(
-                        (
-                          current
-                        ) =>
+                        (current) =>
                           !current
                       );
 
-                      setQuickSearch(
-                        ""
-                      );
+                      setQuickSearch("");
                     }}
                     className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
                   >
@@ -2338,19 +2321,12 @@ export default function WhatsAppPage() {
 
                   {quickMessages
                     .filter(
-                      (
-                        item
-                      ) =>
+                      (item) =>
                         item.shortcut
                     )
-                    .slice(
-                      0,
-                      4
-                    )
+                    .slice(0, 4)
                     .map(
-                      (
-                        item
-                      ) => (
+                      (item) => (
                         <button
                           key={
                             item.id
@@ -2382,9 +2358,7 @@ export default function WhatsAppPage() {
                     value={
                       messageText
                     }
-                    onChange={(
-                      event
-                    ) =>
+                    onChange={(event) =>
                       alterarTextoMensagem(
                         event
                           .target
@@ -2394,12 +2368,8 @@ export default function WhatsAppPage() {
                     onKeyDown={
                       handleKeyDown
                     }
-                    disabled={
-                      sending
-                    }
-                    maxLength={
-                      4096
-                    }
+                    disabled={sending}
+                    maxLength={4096}
                     rows={1}
                     placeholder="Digite uma mensagem ou use /atalho..."
                     className="max-h-32 min-h-[46px] flex-1 resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 disabled:bg-slate-50"
