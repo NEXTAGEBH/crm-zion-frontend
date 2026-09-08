@@ -67,9 +67,7 @@ type ConversationDetail = {
   };
 
   contact: Contact;
-
   messages: Message[];
-
   currentUser?: CurrentUserInfo;
 };
 
@@ -88,6 +86,17 @@ type FunnelStep = {
   order: number;
   companyId: string;
   stageType?: string;
+};
+
+type QuickMessage = {
+  id: string;
+  companyId: string;
+  title: string;
+  body: string;
+  shortcut: string | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 };
 
 function formatarHorario(
@@ -387,16 +396,16 @@ export default function WhatsAppPage() {
   const [
     selectedId,
     setSelectedId,
-  ] = useState<
-    string | null
-  >(null);
+  ] = useState<string | null>(
+    null
+  );
 
   const [
     detail,
     setDetail,
-  ] = useState<
-    ConversationDetail | null
-  >(null);
+  ] = useState<ConversationDetail | null>(
+    null
+  );
 
   const [
     teamUsers,
@@ -409,11 +418,16 @@ export default function WhatsAppPage() {
   ] = useState<FunnelStep[]>([]);
 
   const [
+    quickMessages,
+    setQuickMessages,
+  ] = useState<QuickMessage[]>([]);
+
+  const [
     currentUser,
     setCurrentUser,
-  ] = useState<
-    CurrentUserInfo | null
-  >(null);
+  ] = useState<CurrentUserInfo | null>(
+    null
+  );
 
   const [
     loading,
@@ -456,18 +470,28 @@ export default function WhatsAppPage() {
   ] = useState("");
 
   const [
+    quickMenuOpen,
+    setQuickMenuOpen,
+  ] = useState(false);
+
+  const [
+    quickSearch,
+    setQuickSearch,
+  ] = useState("");
+
+  const [
     error,
     setError,
-  ] = useState<
-    string | null
-  >(null);
+  ] = useState<string | null>(
+    null
+  );
 
   const [
     success,
     setSuccess,
-  ] = useState<
-    string | null
-  >(null);
+  ] = useState<string | null>(
+    null
+  );
 
   const messagesEndRef =
     useRef<HTMLDivElement | null>(
@@ -480,9 +504,9 @@ export default function WhatsAppPage() {
     );
 
   const selectedIdRef =
-    useRef<
-      string | null
-    >(null);
+    useRef<string | null>(
+      null
+    );
 
   useEffect(
     () => {
@@ -528,19 +552,13 @@ export default function WhatsAppPage() {
       []
     );
 
-  /*
-   * Carrega usuário atual,
-   * usuários da empresa e etapas
-   * do funil usando RLS.
-   */
   const carregarOpcoes =
     useCallback(
       async () => {
         try {
           const {
             data: authData,
-            error:
-              authError,
+            error: authError,
           } =
             await supabase.auth
               .getUser();
@@ -589,9 +607,13 @@ export default function WhatsAppPage() {
               crmUser.role,
           });
 
+          const token =
+            await pegarToken();
+
           const [
             usersResult,
             stepsResult,
+            quickResponse,
           ] =
             await Promise.all([
               supabase
@@ -631,6 +653,21 @@ export default function WhatsAppPage() {
                       true,
                   }
                 ),
+
+              fetch(
+                "/api/quick-messages?active=true",
+                {
+                  method: "GET",
+
+                  headers: {
+                    Authorization:
+                      `Bearer ${token}`,
+                  },
+
+                  cache:
+                    "no-store",
+                }
+              ),
             ]);
 
           if (
@@ -664,6 +701,25 @@ export default function WhatsAppPage() {
               []
             ) as FunnelStep[]
           );
+
+          const quickData =
+            await quickResponse.json();
+
+          if (
+            !quickResponse.ok
+          ) {
+            throw new Error(
+              quickData.error ||
+                "Erro ao carregar mensagens rápidas."
+            );
+          }
+
+          setQuickMessages(
+            (
+              quickData.quickMessages ||
+              []
+            ) as QuickMessage[]
+          );
         } catch (
           err
         ) {
@@ -673,7 +729,9 @@ export default function WhatsAppPage() {
           );
         }
       },
-      []
+      [
+        pegarToken,
+      ]
     );
 
   const carregarLista =
@@ -698,8 +756,7 @@ export default function WhatsAppPage() {
             await fetch(
               "/api/whatsapp/conversations",
               {
-                method:
-                  "GET",
+                method: "GET",
 
                 headers: {
                   Authorization:
@@ -751,11 +808,6 @@ export default function WhatsAppPage() {
             );
           }
 
-          /*
-           * Se o atendente perdeu
-           * acesso à conversa após
-           * uma reatribuição.
-           */
           if (
             selectedIdRef.current &&
             !lista.some(
@@ -1078,9 +1130,7 @@ export default function WhatsAppPage() {
 
           window.setTimeout(
             () => {
-              setSuccess(
-                null
-              );
+              setSuccess(null);
             },
             1800
           );
@@ -1215,9 +1265,7 @@ export default function WhatsAppPage() {
 
           window.setTimeout(
             () => {
-              setSuccess(
-                null
-              );
+              setSuccess(null);
             },
             1800
           );
@@ -1239,6 +1287,101 @@ export default function WhatsAppPage() {
       [
         pegarToken,
         savingFunnel,
+      ]
+    );
+
+  const usarMensagemRapida =
+    useCallback(
+      (
+        item:
+          QuickMessage
+      ) => {
+        setMessageText(
+          item.body
+        );
+
+        setQuickMenuOpen(
+          false
+        );
+
+        setQuickSearch(
+          ""
+        );
+
+        window.setTimeout(
+          () => {
+            textareaRef.current
+              ?.focus();
+          },
+          50
+        );
+      },
+      []
+    );
+
+  const alterarTextoMensagem =
+    useCallback(
+      (
+        value:
+          string
+      ) => {
+        const texto =
+          value.trim();
+
+        if (
+          texto.startsWith(
+            "/"
+          ) &&
+          !texto.includes(
+            " "
+          ) &&
+          !texto.includes(
+            "\n"
+          )
+        ) {
+          const mensagemEncontrada =
+            quickMessages.find(
+              (
+                item
+              ) =>
+                item.shortcut
+                  ?.toLowerCase() ===
+                texto.toLowerCase()
+            );
+
+          if (
+            mensagemEncontrada
+          ) {
+            setMessageText(
+              mensagemEncontrada.body
+            );
+
+            setQuickMenuOpen(
+              false
+            );
+
+            setQuickSearch(
+              ""
+            );
+
+            return;
+          }
+
+          setQuickSearch(
+            texto
+          );
+
+          setQuickMenuOpen(
+            true
+          );
+        }
+
+        setMessageText(
+          value
+        );
+      },
+      [
+        quickMessages,
       ]
     );
 
@@ -1311,6 +1454,10 @@ export default function WhatsAppPage() {
 
           setMessageText("");
 
+          setQuickMenuOpen(
+            false
+          );
+
           setSuccess(
             "Mensagem enviada."
           );
@@ -1373,6 +1520,17 @@ export default function WhatsAppPage() {
   ) => {
     if (
       event.key ===
+        "Escape"
+    ) {
+      setQuickMenuOpen(
+        false
+      );
+
+      return;
+    }
+
+    if (
+      event.key ===
         "Enter" &&
       !event.shiftKey
     ) {
@@ -1405,6 +1563,8 @@ export default function WhatsAppPage() {
 
       setDetail(null);
       setMessageText("");
+      setQuickMenuOpen(false);
+      setQuickSearch("");
 
       void carregarDetalhe(
         selectedId,
@@ -1532,6 +1692,48 @@ export default function WhatsAppPage() {
       ]
     );
 
+  const quickMessagesFiltradas =
+    useMemo(
+      () => {
+        const term =
+          quickSearch
+            .trim()
+            .toLowerCase();
+
+        if (!term) {
+          return quickMessages;
+        }
+
+        return quickMessages.filter(
+          (
+            item
+          ) =>
+            item.title
+              .toLowerCase()
+              .includes(
+                term
+              ) ||
+            item.body
+              .toLowerCase()
+              .includes(
+                term
+              ) ||
+            (
+              item.shortcut ||
+              ""
+            )
+              .toLowerCase()
+              .includes(
+                term
+              )
+        );
+      },
+      [
+        quickMessages,
+        quickSearch,
+      ]
+    );
+
   const totalUnread =
     useMemo(
       () =>
@@ -1574,18 +1776,6 @@ export default function WhatsAppPage() {
         )
       : undefined;
 
-  const etapaAtual =
-    detail
-      ? funnelSteps.find(
-          (
-            step
-          ) =>
-            step.id ===
-            detail.contact
-              .funnelStepId
-        )
-      : undefined;
-
   if (loading) {
     return (
       <div className="flex h-[calc(100vh-2rem)] items-center justify-center rounded-2xl border border-slate-200 bg-white">
@@ -1602,7 +1792,6 @@ export default function WhatsAppPage() {
 
   return (
     <div className="flex h-[calc(100vh-2rem)] min-h-[650px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-      {/* CONVERSAS */}
       <section className="flex w-[360px] min-w-[310px] flex-col border-r border-slate-200">
         <div className="border-b border-slate-200 px-5 pb-4 pt-5">
           <div className="mb-4 flex items-start justify-between gap-4">
@@ -1675,11 +1864,6 @@ export default function WhatsAppPage() {
                 <p className="text-sm font-medium text-slate-700">
                   Nenhuma conversa
                 </p>
-
-                <p className="mt-1 text-xs text-slate-400">
-                  Novas mensagens
-                  aparecerão aqui.
-                </p>
               </div>
             </div>
           ) : (
@@ -1726,14 +1910,7 @@ export default function WhatsAppPage() {
 
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-2">
-                        <p
-                          className={`truncate text-sm ${
-                            unread >
-                            0
-                              ? "font-semibold text-slate-900"
-                              : "font-medium text-slate-800"
-                          }`}
-                        >
+                        <p className="truncate text-sm font-medium text-slate-800">
                           {conversation
                             .contact
                             ?.name ||
@@ -1787,7 +1964,6 @@ export default function WhatsAppPage() {
         </div>
       </section>
 
-      {/* ATENDIMENTO */}
       <section className="flex min-w-0 flex-1 flex-col bg-slate-50">
         {!selectedId ? (
           <div className="flex h-full items-center justify-center">
@@ -1804,7 +1980,6 @@ export default function WhatsAppPage() {
           </div>
         ) : detail ? (
           <>
-            {/* CABEÇALHO */}
             <div className="shrink-0 border-b border-slate-200 bg-white">
               <div className="flex min-h-[72px] items-center justify-between gap-5 px-5 py-3">
                 <div className="flex min-w-0 items-center gap-3">
@@ -1833,12 +2008,11 @@ export default function WhatsAppPage() {
                   </div>
                 </div>
 
-                <span className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500">
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500">
                   WhatsApp
                 </span>
               </div>
 
-              {/* CONTROLES CRM */}
               <div className="grid grid-cols-1 gap-3 border-t border-slate-100 px-5 py-3 md:grid-cols-2">
                 <div>
                   <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-slate-400">
@@ -1866,7 +2040,7 @@ export default function WhatsAppPage() {
                             null
                         )
                       }
-                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-slate-400 disabled:bg-slate-50"
+                      className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
                     >
                       <option value="">
                         Sem responsável
@@ -1886,13 +2060,6 @@ export default function WhatsAppPage() {
                           >
                             {user.name ||
                               user.email}
-                            {user.role ===
-                            "admin"
-                              ? " (Admin)"
-                              : user.role ===
-                                  "zion_admin"
-                                ? " (Zion)"
-                                : ""}
                           </option>
                         )
                       )}
@@ -1905,12 +2072,6 @@ export default function WhatsAppPage() {
                           ?.email ||
                         "Sem responsável"}
                     </div>
-                  )}
-
-                  {savingResponsible && (
-                    <p className="mt-1 text-[10px] text-slate-400">
-                      Salvando responsável...
-                    </p>
                   )}
                 </div>
 
@@ -1938,16 +2099,8 @@ export default function WhatsAppPage() {
                           .value
                       )
                     }
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-slate-400 disabled:bg-slate-50"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-slate-400"
                   >
-                    {!detail
-                      .contact
-                      .funnelStepId && (
-                      <option value="">
-                        Selecione uma etapa
-                      </option>
-                    )}
-
                     {funnelSteps.map(
                       (
                         step
@@ -1965,17 +2118,10 @@ export default function WhatsAppPage() {
                       )
                     )}
                   </select>
-
-                  {savingFunnel && (
-                    <p className="mt-1 text-[10px] text-slate-400">
-                      Salvando etapa...
-                    </p>
-                  )}
                 </div>
               </div>
             </div>
 
-            {/* MENSAGENS */}
             <div className="flex-1 overflow-y-auto px-5 py-6">
               <div className="mx-auto flex max-w-4xl flex-col gap-2">
                 {detail.messages.map(
@@ -2087,70 +2233,204 @@ export default function WhatsAppPage() {
               </div>
             </div>
 
-            {/* ENVIO */}
             <form
               onSubmit={
                 handleSubmit
               }
-              className="shrink-0 border-t border-slate-200 bg-white p-4"
+              className="relative shrink-0 border-t border-slate-200 bg-white p-4"
             >
-              <div className="mx-auto flex max-w-4xl items-end gap-3">
-                <textarea
-                  ref={
-                    textareaRef
-                  }
-                  value={
-                    messageText
-                  }
-                  onChange={(
-                    event
-                  ) =>
-                    setMessageText(
-                      event.target
-                        .value
+              {quickMenuOpen && (
+                <div className="absolute bottom-[92px] left-4 z-30 w-[420px] max-w-[calc(100%-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                  <div className="border-b border-slate-100 p-3">
+                    <input
+                      value={
+                        quickSearch
+                      }
+                      onChange={(
+                        event
+                      ) =>
+                        setQuickSearch(
+                          event
+                            .target
+                            .value
+                        )
+                      }
+                      placeholder="Buscar mensagem rápida..."
+                      autoFocus
+                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-slate-400"
+                    />
+                  </div>
+
+                  <div className="max-h-[320px] overflow-y-auto">
+                    {quickMessagesFiltradas.length ===
+                    0 ? (
+                      <div className="px-4 py-8 text-center">
+                        <p className="text-sm text-slate-500">
+                          Nenhuma mensagem encontrada.
+                        </p>
+                      </div>
+                    ) : (
+                      quickMessagesFiltradas.map(
+                        (
+                          item
+                        ) => (
+                          <button
+                            key={
+                              item.id
+                            }
+                            type="button"
+                            onClick={() =>
+                              usarMensagemRapida(
+                                item
+                              )
+                            }
+                            className="block w-full border-b border-slate-100 px-4 py-3 text-left transition last:border-b-0 hover:bg-slate-50"
+                          >
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-semibold text-slate-800">
+                                {
+                                  item.title
+                                }
+                              </p>
+
+                              {item.shortcut && (
+                                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
+                                  {
+                                    item.shortcut
+                                  }
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                              {
+                                item.body
+                              }
+                            </p>
+                          </button>
+                        )
+                      )
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="mx-auto max-w-4xl">
+                <div className="mb-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setQuickMenuOpen(
+                        (
+                          current
+                        ) =>
+                          !current
+                      );
+
+                      setQuickSearch(
+                        ""
+                      );
+                    }}
+                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                  >
+                    Mensagens rápidas
+                  </button>
+
+                  {quickMessages
+                    .filter(
+                      (
+                        item
+                      ) =>
+                        item.shortcut
                     )
-                  }
-                  onKeyDown={
-                    handleKeyDown
-                  }
-                  disabled={
-                    sending
-                  }
-                  maxLength={
-                    4096
-                  }
-                  rows={1}
-                  placeholder="Digite uma mensagem..."
-                  className="max-h-32 min-h-[46px] flex-1 resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 disabled:bg-slate-50"
-                />
+                    .slice(
+                      0,
+                      4
+                    )
+                    .map(
+                      (
+                        item
+                      ) => (
+                        <button
+                          key={
+                            item.id
+                          }
+                          type="button"
+                          title={
+                            item.title
+                          }
+                          onClick={() =>
+                            usarMensagemRapida(
+                              item
+                            )
+                          }
+                          className="hidden rounded-md bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500 transition hover:bg-slate-200 md:block"
+                        >
+                          {
+                            item.shortcut
+                          }
+                        </button>
+                      )
+                    )}
+                </div>
 
-                <button
-                  type="submit"
-                  disabled={
-                    sending ||
-                    !messageText.trim()
-                  }
-                  className="h-[46px] rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {sending
-                    ? "Enviando..."
-                    : "Enviar"}
-                </button>
-              </div>
+                <div className="flex items-end gap-3">
+                  <textarea
+                    ref={
+                      textareaRef
+                    }
+                    value={
+                      messageText
+                    }
+                    onChange={(
+                      event
+                    ) =>
+                      alterarTextoMensagem(
+                        event
+                          .target
+                          .value
+                      )
+                    }
+                    onKeyDown={
+                      handleKeyDown
+                    }
+                    disabled={
+                      sending
+                    }
+                    maxLength={
+                      4096
+                    }
+                    rows={1}
+                    placeholder="Digite uma mensagem ou use /atalho..."
+                    className="max-h-32 min-h-[46px] flex-1 resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 disabled:bg-slate-50"
+                  />
 
-              <div className="mx-auto mt-2 flex max-w-4xl justify-between px-1">
-                <p className="text-[10px] text-slate-400">
-                  Enter para enviar.
-                  Shift + Enter para
-                  quebrar linha.
-                </p>
+                  <button
+                    type="submit"
+                    disabled={
+                      sending ||
+                      !messageText.trim()
+                    }
+                    className="h-[46px] rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                  >
+                    {sending
+                      ? "Enviando..."
+                      : "Enviar"}
+                  </button>
+                </div>
 
-                <p className="text-[10px] text-slate-400">
-                  {
-                    messageText.length
-                  }
-                  /4096
-                </p>
+                <div className="mt-2 flex justify-between px-1">
+                  <p className="text-[10px] text-slate-400">
+                    Enter envia. Shift + Enter quebra linha. Digite um atalho como /ola.
+                  </p>
+
+                  <p className="text-[10px] text-slate-400">
+                    {
+                      messageText.length
+                    }
+                    /4096
+                  </p>
+                </div>
               </div>
             </form>
           </>
