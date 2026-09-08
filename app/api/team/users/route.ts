@@ -226,9 +226,7 @@ async function verificarAdministrador(
 }
 
 async function existeOutroAdminAtivo(
-  supabaseAdmin: ReturnType<
-    typeof createClient
-  >,
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>,
   companyId: string,
   userId: string
 ) {

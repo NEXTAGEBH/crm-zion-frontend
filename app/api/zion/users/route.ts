@@ -245,9 +245,7 @@ async function verificarAdminZion(
 }
 
 async function existeOutroAdminAtivo(
-  supabaseAdmin: ReturnType<
-    typeof createClient
-  >,
+  supabaseAdmin: ReturnType<typeof criarSupabaseAdmin>,
   companyId: string,
   userId: string
 ) {

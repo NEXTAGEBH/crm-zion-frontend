@@ -277,9 +277,7 @@ function slugify(valor: string) {
 }
 
 async function gerarSlugUnico(
-  supabaseAdmin: ReturnType<
-    typeof createClient
-  >,
+  supabaseAdmin: ReturnType<typeof criarSupabaseAdmin>,
   base: string
 ) {
   const slugBase = slugify(base);
