@@ -1,8 +1,9 @@
-import crypto from "crypto";
-
 import { NextResponse } from "next/server";
-
 import { createClient } from "@supabase/supabase-js";
+import {
+  createHmac,
+  timingSafeEqual,
+} from "node:crypto";
 
 export const runtime = "nodejs";
 
@@ -14,7 +15,6 @@ type WhatsAppAccount = {
 
 type WhatsAppContact = {
   wa_id?: string;
-
   profile?: {
     name?: string;
   };
@@ -32,8 +32,8 @@ type WhatsAppMessage = {
 
   image?: {
     id?: string;
-    mime_type?: string;
     caption?: string;
+    mime_type?: string;
   };
 
   audio?: {
@@ -43,15 +43,15 @@ type WhatsAppMessage = {
 
   video?: {
     id?: string;
-    mime_type?: string;
     caption?: string;
+    mime_type?: string;
   };
 
   document?: {
     id?: string;
-    mime_type?: string;
-    filename?: string;
     caption?: string;
+    filename?: string;
+    mime_type?: string;
   };
 
   sticker?: {
@@ -61,18 +61,30 @@ type WhatsAppMessage = {
 
   button?: {
     text?: string;
+    payload?: string;
   };
 
-  interactive?: unknown;
+  interactive?: {
+    type?: string;
 
-  [key: string]: unknown;
+    button_reply?: {
+      id?: string;
+      title?: string;
+    };
+
+    list_reply?: {
+      id?: string;
+      title?: string;
+      description?: string;
+    };
+  };
 };
 
 type WhatsAppStatus = {
   id?: string;
   status?: string;
-
-  [key: string]: unknown;
+  timestamp?: string;
+  recipient_id?: string;
 };
 
 type WhatsAppChangeValue = {
@@ -84,26 +96,31 @@ type WhatsAppChangeValue = {
   };
 
   contacts?: WhatsAppContact[];
-
   messages?: WhatsAppMessage[];
-
   statuses?: WhatsAppStatus[];
+};
 
-  [key: string]: unknown;
+type WhatsAppChange = {
+  field?: string;
+  value?: WhatsAppChangeValue;
+};
+
+type WhatsAppEntry = {
+  id?: string;
+  changes?: WhatsAppChange[];
 };
 
 type WhatsAppWebhookPayload = {
   object?: string;
+  entry?: WhatsAppEntry[];
 
-  entry?: Array<{
-    id?: string;
-
-    changes?: Array<{
-      field?: string;
-
-      value?: WhatsAppChangeValue;
-    }>;
-  }>;
+  /*
+   * O painel de testes da Meta
+   * também pode enviar diretamente
+   * field + value.
+   */
+  field?: string;
+  value?: WhatsAppChangeValue;
 };
 
 function getSupabaseAdmin() {
@@ -156,11 +173,10 @@ function validarAssinaturaMeta(
 
   const expectedSignature =
     "sha256=" +
-    crypto
-      .createHmac(
-        "sha256",
-        appSecret
-      )
+    createHmac(
+      "sha256",
+      appSecret
+    )
       .update(
         rawBody,
         "utf8"
@@ -186,7 +202,7 @@ function validarAssinaturaMeta(
     return false;
   }
 
-  return crypto.timingSafeEqual(
+  return timingSafeEqual(
     receivedBuffer,
     expectedBuffer
   );
@@ -222,9 +238,7 @@ function extrairConteudo(
     message.type ||
     "unknown";
 
-  if (
-    type === "text"
-  ) {
+  if (type === "text") {
     return {
       body:
         message.text?.body ||
@@ -235,9 +249,7 @@ function extrairConteudo(
     };
   }
 
-  if (
-    type === "image"
-  ) {
+  if (type === "image") {
     return {
       body:
         message.image?.caption ||
@@ -254,9 +266,7 @@ function extrairConteudo(
     };
   }
 
-  if (
-    type === "audio"
-  ) {
+  if (type === "audio") {
     return {
       body: null,
 
@@ -271,9 +281,7 @@ function extrairConteudo(
     };
   }
 
-  if (
-    type === "video"
-  ) {
+  if (type === "video") {
     return {
       body:
         message.video?.caption ||
@@ -290,9 +298,7 @@ function extrairConteudo(
     };
   }
 
-  if (
-    type === "document"
-  ) {
+  if (type === "document") {
     return {
       body:
         message.document
@@ -312,9 +318,7 @@ function extrairConteudo(
     };
   }
 
-  if (
-    type === "sticker"
-  ) {
+  if (type === "sticker") {
     return {
       body: null,
 
@@ -329,12 +333,24 @@ function extrairConteudo(
     };
   }
 
-  if (
-    type === "button"
-  ) {
+  if (type === "button") {
     return {
       body:
         message.button?.text ||
+        null,
+
+      mediaId: null,
+      mediaMimeType: null,
+    };
+  }
+
+  if (type === "interactive") {
+    return {
+      body:
+        message.interactive
+          ?.button_reply?.title ||
+        message.interactive
+          ?.list_reply?.title ||
         null,
 
       mediaId: null,
@@ -347,6 +363,56 @@ function extrairConteudo(
     mediaId: null,
     mediaMimeType: null,
   };
+}
+
+function extrairChanges(
+  payload: WhatsAppWebhookPayload
+): WhatsAppChange[] {
+  /*
+   * Formato usado pela tela de
+   * teste do painel da Meta.
+   *
+   * {
+   *   field: "messages",
+   *   value: {...}
+   * }
+   */
+  if (
+    payload.field &&
+    payload.value
+  ) {
+    return [
+      {
+        field: payload.field,
+        value: payload.value,
+      },
+    ];
+  }
+
+  /*
+   * Formato real dos webhooks
+   * da WhatsApp Cloud API.
+   *
+   * object
+   * entry[]
+   * changes[]
+   */
+  const changes: WhatsAppChange[] =
+    [];
+
+  for (
+    const entry of
+    payload.entry || []
+  ) {
+    for (
+      const change of
+      entry.changes || []
+    ) {
+      changes.push(change);
+    }
+  }
+
+  return changes;
 }
 
 async function buscarContaWhatsApp(
@@ -388,8 +454,7 @@ async function buscarOuCriarContato(
 
   const {
     data: contatoExistente,
-    error:
-      contatoExistenteError,
+    error: contatoExistenteError,
   } = await supabaseAdmin
     .from("Contact")
     .select(
@@ -420,15 +485,12 @@ async function buscarOuCriarContato(
   }
 
   /*
-   * Segunda tentativa:
-   * contato manual já cadastrado
-   * com o telefone exatamente
-   * igual ao WA ID.
+   * Procura um contato cadastrado
+   * manualmente usando o telefone.
    */
   const {
     data: contatoPorTelefone,
-    error:
-      contatoTelefoneError,
+    error: contatoTelefoneError,
   } = await supabaseAdmin
     .from("Contact")
     .select(
@@ -457,8 +519,7 @@ async function buscarOuCriarContato(
   ) {
     const {
       data: contatoAtualizado,
-      error:
-        updateError,
+      error: updateError,
     } = await supabaseAdmin
       .from("Contact")
       .update({
@@ -490,14 +551,13 @@ async function buscarOuCriarContato(
   }
 
   /*
-   * Todo lead novo do WhatsApp
-   * entra automaticamente na
-   * primeira etapa do funil.
+   * Todo novo lead recebido pelo
+   * WhatsApp entra na primeira
+   * etapa do funil da empresa.
    */
   const {
     data: primeiraEtapa,
-    error:
-      etapaError,
+    error: etapaError,
   } = await supabaseAdmin
     .from("FunnelStep")
     .select(
@@ -530,8 +590,7 @@ async function buscarOuCriarContato(
 
   const {
     data: novoContato,
-    error:
-      novoContatoError,
+    error: novoContatoError,
   } = await supabaseAdmin
     .from("Contact")
     .insert({
@@ -583,8 +642,7 @@ async function buscarOuCriarConversa(
 
   const {
     data: conversa,
-    error:
-      conversaError,
+    error: conversaError,
   } = await supabaseAdmin
     .from("Conversation")
     .select(
@@ -600,7 +658,9 @@ async function buscarOuCriarConversa(
     )
     .maybeSingle();
 
-  if (conversaError) {
+  if (
+    conversaError
+  ) {
     throw new Error(
       `Erro ao procurar conversa: ${conversaError.message}`
     );
@@ -610,14 +670,12 @@ async function buscarOuCriarConversa(
     const unreadCount =
       typeof conversa.unreadCount ===
       "number"
-        ? conversa.unreadCount +
-          1
+        ? conversa.unreadCount + 1
         : 1;
 
     const {
       data: conversaAtualizada,
-      error:
-        updateError,
+      error: updateError,
     } = await supabaseAdmin
       .from("Conversation")
       .update({
@@ -656,8 +714,7 @@ async function buscarOuCriarConversa(
 
   const {
     data: novaConversa,
-    error:
-      novaConversaError,
+    error: novaConversaError,
   } = await supabaseAdmin
     .from("Conversation")
     .insert({
@@ -712,19 +769,21 @@ async function processarMensagemRecebida(
     !wamid ||
     !sender
   ) {
+    console.warn(
+      "Mensagem recebida sem id ou remetente."
+    );
+
     return;
   }
 
   /*
-   * A Meta pode reenviar webhooks.
-   * Antes de qualquer alteração,
-   * verificamos se a mensagem já
-   * foi processada.
+   * Webhooks podem ser reenviados
+   * pela Meta. O wamid impede
+   * duplicidade.
    */
   const {
     data: mensagemExistente,
-    error:
-      mensagemExistenteError,
+    error: mensagemExistenteError,
   } = await supabaseAdmin
     .from("Message")
     .select("id")
@@ -790,8 +849,7 @@ async function processarMensagemRecebida(
     );
 
   const {
-    error:
-      mensagemError,
+    error: mensagemError,
   } = await supabaseAdmin
     .from("Message")
     .insert({
@@ -833,8 +891,9 @@ async function processarMensagemRecebida(
 
   if (mensagemError) {
     /*
-     * 23505 significa que outra
-     * execução já salvou o wamid.
+     * 23505 é unique violation.
+     * Outra execução já pode ter
+     * salvo o mesmo wamid.
      */
     if (
       mensagemError.code ===
@@ -847,6 +906,22 @@ async function processarMensagemRecebida(
       `Erro ao salvar mensagem: ${mensagemError.message}`
     );
   }
+
+  console.log(
+    "Mensagem WhatsApp recebida e salva.",
+    {
+      phoneNumberId:
+        account.phoneNumberId,
+
+      companyId:
+        account.companyId,
+
+      contactId:
+        contato.id,
+
+      wamid,
+    }
+  );
 }
 
 async function processarStatus(
@@ -900,11 +975,79 @@ async function processarStatus(
   }
 }
 
+async function processarChange(
+  change: WhatsAppChange
+) {
+  if (
+    change.field !==
+    "messages"
+  ) {
+    return;
+  }
+
+  const value =
+    change.value;
+
+  if (!value) {
+    return;
+  }
+
+  const phoneNumberId =
+    value.metadata
+      ?.phone_number_id;
+
+  if (!phoneNumberId) {
+    console.warn(
+      "Webhook sem phone_number_id."
+    );
+
+    return;
+  }
+
+  /*
+   * Ponto central do multi tenant:
+   *
+   * phone_number_id
+   * WhatsAppAccount
+   * companyId
+   */
+  const account =
+    await buscarContaWhatsApp(
+      phoneNumberId
+    );
+
+  if (!account) {
+    console.warn(
+      `Número WhatsApp não cadastrado no Zion: ${phoneNumberId}`
+    );
+
+    return;
+  }
+
+  for (
+    const message of
+    value.messages || []
+  ) {
+    await processarMensagemRecebida(
+      value,
+      account,
+      message
+    );
+  }
+
+  for (
+    const status of
+    value.statuses || []
+  ) {
+    await processarStatus(
+      status
+    );
+  }
+}
+
 /*
- * =========================================================
- * GET
- * Verificação inicial do webhook pela Meta
- * =========================================================
+ * Verificação inicial do webhook
+ * feita pela Meta.
  */
 export async function GET(
   request: Request
@@ -972,10 +1115,22 @@ export async function GET(
 }
 
 /*
- * =========================================================
- * POST
- * Recebe mensagens e status do WhatsApp
- * =========================================================
+ * Recebe mensagens e atualizações
+ * de status da WhatsApp Cloud API.
+ *
+ * Aceita:
+ *
+ * 1. Payload real de produção
+ *
+ * object
+ * entry[]
+ * changes[]
+ *
+ * 2. Payload direto enviado pela
+ * ferramenta de teste da Meta
+ *
+ * field
+ * value
  */
 export async function POST(
   request: Request
@@ -1020,7 +1175,7 @@ export async function POST(
       payload =
         JSON.parse(
           rawBody
-        );
+        ) as WhatsAppWebhookPayload;
     } catch {
       return NextResponse.json(
         {
@@ -1033,106 +1188,52 @@ export async function POST(
       );
     }
 
-    if (
-      payload.object !==
-      "whatsapp_business_account"
-    ) {
-      return NextResponse.json(
-        {
-          received: true,
-        }
+    /*
+     * Agora normalizamos os dois
+     * formatos em uma única lista.
+     */
+    const changes =
+      extrairChanges(
+        payload
       );
+
+    if (
+      changes.length === 0
+    ) {
+      console.log(
+        "Webhook recebido sem changes processáveis."
+      );
+
+      return NextResponse.json({
+        received: true,
+        processed: 0,
+      });
     }
 
+    let processados = 0;
+
     for (
-      const entry of
-      payload.entry || []
+      const change of
+      changes
     ) {
-      for (
-        const change of
-        entry.changes || []
+      if (
+        change.field !==
+        "messages"
       ) {
-        if (
-          change.field !==
-          "messages"
-        ) {
-          continue;
-        }
-
-        const value =
-          change.value;
-
-        if (!value) {
-          continue;
-        }
-
-        const phoneNumberId =
-          value.metadata
-            ?.phone_number_id;
-
-        if (!phoneNumberId) {
-          console.warn(
-            "Webhook sem phone_number_id."
-          );
-
-          continue;
-        }
-
-        /*
-         * Este é o ponto central
-         * do multi tenant.
-         *
-         * phone_number_id
-         * ↓
-         * WhatsAppAccount
-         * ↓
-         * companyId
-         */
-        const account =
-          await buscarContaWhatsApp(
-            phoneNumberId
-          );
-
-        if (!account) {
-          console.warn(
-            `Número WhatsApp não cadastrado no Zion: ${phoneNumberId}`
-          );
-
-          /*
-           * Retornamos 200 no final.
-           * Não adianta a Meta ficar
-           * reenviando um evento de
-           * um número ainda não cadastrado.
-           */
-          continue;
-        }
-
-        for (
-          const message of
-          value.messages ||
-          []
-        ) {
-          await processarMensagemRecebida(
-            value,
-            account,
-            message
-          );
-        }
-
-        for (
-          const status of
-          value.statuses ||
-          []
-        ) {
-          await processarStatus(
-            status
-          );
-        }
+        continue;
       }
+
+      await processarChange(
+        change
+      );
+
+      processados++;
     }
 
     return NextResponse.json({
       received: true,
+      processed:
+        processados,
     });
   } catch (error) {
     console.error(
