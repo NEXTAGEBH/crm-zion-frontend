@@ -421,68 +421,6 @@ function calcularExpiracao(
   return null;
 }
 
-async function trocarCodigoPorToken(
-  code: string,
-  appId: string,
-  appSecret: string,
-  graphVersion: string
-) {
-  const url =
-    new URL(
-      `https://graph.facebook.com/${graphVersion}/oauth/access_token`
-    );
-
-  url.searchParams.set(
-    "client_id",
-    appId
-  );
-
-  url.searchParams.set(
-    "client_secret",
-    appSecret
-  );
-
-  url.searchParams.set(
-    "code",
-    code
-  );
-
-  url.searchParams.set(
-    "grant_type",
-    "authorization_code"
-  );
-
-  const response =
-    await fetch(
-      url,
-      {
-        method: "GET",
-        cache: "no-store",
-      }
-    );
-
-  const data =
-    (
-      await response
-        .json()
-    ) as MetaTokenResponse;
-
-  if (
-    !response.ok ||
-    data.error ||
-    !data.access_token
-  ) {
-    throw new Error(
-      metaErrorMessage(
-        data.error,
-        "Não foi possível trocar o código do Cadastro Incorporado por uma credencial da Meta."
-      )
-    );
-  }
-
-  return data;
-}
-
 async function depurarToken(
   accessToken: string,
   appId: string,
@@ -1069,12 +1007,6 @@ export async function POST(
         ? body.accessToken.trim()
         : "";
 
-    const code =
-      typeof body.code ===
-      "string"
-        ? body.code.trim()
-        : "";
-
     const receivedWabaId =
       typeof body.wabaId ===
       "string"
@@ -1107,14 +1039,13 @@ export async function POST(
             .trim()
         : "";
 
-    if (
-      !accessTokenFromSdk &&
-      !code
-    ) {
+    if (!accessTokenFromSdk) {
       return NextResponse.json(
         {
           error:
-            "A Meta não retornou uma credencial válida para concluir o Cadastro Incorporado.",
+            "A Meta não retornou o accessToken esperado pelo Cadastro Incorporado.",
+          code:
+            "META_ACCESS_TOKEN_MISSING",
         },
         {
           status: 400,
@@ -1160,42 +1091,23 @@ export async function POST(
     }
 
     /*
-     * Configurações recentes do Facebook Login for Business
-     * podem devolver o accessToken diretamente no authResponse.
-     * Preferimos esse token quando ele existe e evitamos uma
-     * troca OAuth desnecessária, que também elimina problemas
-     * de redirect_uri do JavaScript SDK.
+     * O Cadastro Incorporado iniciado via Facebook JavaScript SDK
+     * devolve a credencial transitória no authResponse.accessToken.
+     * Não tratamos callback ids, "cb=..." ou authResponse.code como
+     * OAuth authorization codes. Isso evita o erro de redirect_uri
+     * na troca /oauth/access_token.
      *
-     * O fluxo por code permanece apenas como compatibilidade
-     * para configurações que realmente retornem authorization code.
+     * A credencial é validada no servidor com /debug_token e depois
+     * armazenada somente de forma criptografada.
      */
-    let tokenResponse:
-      MetaTokenResponse;
-
-    let accessToken:
-      string;
-
-    if (accessTokenFromSdk) {
-      accessToken =
-        accessTokenFromSdk;
-
-      tokenResponse = {
+    const tokenResponse:
+      MetaTokenResponse = {
         access_token:
-          accessToken,
+          accessTokenFromSdk,
       };
-    } else {
-      tokenResponse =
-        await trocarCodigoPorToken(
-          code,
-          appId,
-          appSecret,
-          graphVersion
-        );
 
-      accessToken =
-        tokenResponse
-          .access_token as string;
-    }
+    const accessToken =
+      accessTokenFromSdk;
 
     const debugResponse =
       await depurarToken(
