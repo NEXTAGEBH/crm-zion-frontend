@@ -15,8 +15,6 @@ import {
   Bell,
   Puzzle,
   ChevronRight,
-  CheckCircle2,
-  XCircle,
   UserPlus,
   Trash2,
   Ban,
@@ -69,7 +67,8 @@ const categoriasConfig = [
   {
     icon: MessageCircle,
     titulo: "WhatsApp",
-    desc: "Conexão via QR Code ou API Oficial, números conectados.",
+    desc: "Conecte e gerencie números pela API Oficial da Meta.",
+    action: "whatsapp",
   },
   {
     icon: GitBranchPlus,
@@ -138,11 +137,6 @@ async function lerResposta(
 
 export default function ConfiguracoesPage() {
     const router = useRouter();
-  const [
-    whatsappConectado,
-    setWhatsappConectado,
-  ] = useState(true);
-
   const [
     equipeAberta,
     setEquipeAberta,
@@ -925,7 +919,7 @@ export default function ConfiguracoesPage() {
         </p>
       </div>
 
-      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-8 flex items-center justify-between">
+      <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
           <div className="p-3 rounded-lg bg-emerald-50">
             <MessageCircle
@@ -940,46 +934,22 @@ export default function ConfiguracoesPage() {
             </h3>
 
             <p className="text-sm text-slate-500 mt-1">
-              {whatsappConectado
-                ? "Conectado via API Oficial. Número: +55 11 99999-0000"
-                : "Desconectado. Conecte para começar a receber leads."}
+              Conecte o WhatsApp Business pela integração oficial da Meta.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          {whatsappConectado ? (
-            <div className="flex items-center gap-2 text-emerald-600 font-medium text-sm">
-              <CheckCircle2
-                size={18}
-              />
-
-              Online
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-red-500 font-medium text-sm">
-              <XCircle
-                size={18}
-              />
-
-              Offline
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() =>
-              setWhatsappConectado(
-                !whatsappConectado
-              )
-            }
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-          >
-            {whatsappConectado
-              ? "Desconectar"
-              : "Conectar via QR Code"}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() =>
+            router.push(
+              "/configuracoes/whatsapp"
+            )
+          }
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
+        >
+          Gerenciar WhatsApp
+        </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -1000,10 +970,15 @@ const gerenciaDistribuicao =
   cat.action ===
   "distribution";
 
+const gerenciaWhatsApp =
+  cat.action ===
+  "whatsapp";
+
 const possuiAcao =
   gerenciaEquipe ||
   gerenciaFunil ||
-  gerenciaDistribuicao;
+  gerenciaDistribuicao ||
+  gerenciaWhatsApp;
 
             return (
               <div
@@ -1020,6 +995,11 @@ const possuiAcao =
     ? () =>
         router.push(
           "/configuracoes/distribuicao"
+        )
+    : gerenciaWhatsApp
+    ? () =>
+        router.push(
+          "/configuracoes/whatsapp"
         )
     : undefined
                 }
