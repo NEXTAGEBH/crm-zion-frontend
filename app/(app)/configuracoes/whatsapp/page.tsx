@@ -17,6 +17,8 @@ import {
   XCircle,
 } from "lucide-react";
 
+import { supabase } from "@/lib/supabaseClient";
+
 type FacebookLoginResponse = {
   authResponse?: {
     code?: string;
@@ -65,6 +67,29 @@ type FacebookWindow =
     fbAsyncInit?: () => void;
   };
 
+type WhatsAppAccount = {
+  id: string;
+  companyId: string;
+  wabaId: string | null;
+  phoneNumberId: string;
+  displayPhoneNumber: string | null;
+  verifiedName: string | null;
+  status: string;
+  businessId?: string | null;
+  connectedVia?: string | null;
+  connectedAt?: string | null;
+  tokenExpiresAt?: string | null;
+};
+
+type OnboardingApiResponse = {
+  error?: string;
+  code?: string;
+  message?: string;
+  accounts?: WhatsAppAccount[];
+  account?: WhatsAppAccount;
+  canManage?: boolean;
+};
+
 const META_GRAPH_VERSION =
   "v26.0";
 
@@ -99,6 +124,41 @@ function parseEmbeddedEvent(
   return null;
 }
 
+function formatarNumero(
+  value:
+    string |
+    null
+) {
+  if (!value) {
+    return "Número não informado";
+  }
+
+  return value;
+}
+
+function nomeTipoConexao(
+  value:
+    string |
+    null |
+    undefined
+) {
+  if (
+    value ===
+    "embedded_signup_coexistence"
+  ) {
+    return "API Oficial + aplicativo";
+  }
+
+  if (
+    value ===
+    "embedded_signup"
+  ) {
+    return "Cadastro Incorporado";
+  }
+
+  return "API Oficial";
+}
+
 export default function WhatsAppConfiguracaoPage() {
   const router =
     useRouter();
@@ -112,6 +172,16 @@ export default function WhatsAppConfiguracaoPage() {
     loading,
     setLoading,
   ] = useState(false);
+
+  const [
+    finalizing,
+    setFinalizing,
+  ] = useState(false);
+
+  const [
+    loadingAccounts,
+    setLoadingAccounts,
+  ] = useState(true);
 
   const [
     error,
@@ -146,6 +216,18 @@ export default function WhatsAppConfiguracaoPage() {
     string | null
   >(null);
 
+  const [
+    accounts,
+    setAccounts,
+  ] = useState<
+    WhatsAppAccount[]
+  >([]);
+
+  const [
+    canManage,
+    setCanManage,
+  ] = useState(true);
+
   const authCodeRef =
     useRef<
       string | null
@@ -154,6 +236,19 @@ export default function WhatsAppConfiguracaoPage() {
   const sessionRef =
     useRef<
       EmbeddedSignupData | null
+    >(null);
+
+  const onboardingEventRef =
+    useRef<
+      string | null
+    >(null);
+
+  const finalizingRef =
+    useRef(false);
+
+  const fallbackTimerRef =
+    useRef<
+      number | null
     >(null);
 
   const appId =
@@ -172,6 +267,102 @@ export default function WhatsAppConfiguracaoPage() {
     Boolean(
       appId &&
       configId
+    );
+
+  const pegarToken =
+    useCallback(
+      async () => {
+        const {
+          data: {
+            session,
+          },
+          error:
+            sessionError,
+        } =
+          await supabase
+            .auth
+            .getSession();
+
+        if (sessionError) {
+          throw new Error(
+            sessionError.message
+          );
+        }
+
+        if (
+          !session
+            ?.access_token
+        ) {
+          throw new Error(
+            "Sua sessão do CRM expirou. Entre novamente."
+          );
+        }
+
+        return session
+          .access_token;
+      },
+      []
+    );
+
+  const carregarContas =
+    useCallback(
+      async () => {
+        try {
+          setLoadingAccounts(
+            true
+          );
+
+          const token =
+            await pegarToken();
+
+          const response =
+            await fetch(
+              "/api/whatsapp/onboarding",
+              {
+                method: "GET",
+                headers: {
+                  Authorization:
+                    `Bearer ${token}`,
+                },
+                cache: "no-store",
+              }
+            );
+
+          const data =
+            (
+              await response
+                .json()
+            ) as OnboardingApiResponse;
+
+          if (!response.ok) {
+            throw new Error(
+              data.error ||
+                "Não foi possível carregar as contas do WhatsApp."
+            );
+          }
+
+          setAccounts(
+            data.accounts ||
+              []
+          );
+
+          setCanManage(
+            data.canManage !==
+              false
+          );
+        } catch (err) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Erro ao carregar contas do WhatsApp."
+          );
+        } finally {
+          setLoadingAccounts(
+            false
+          );
+        }
+      },
+      [pegarToken]
     );
 
   const inicializarSdk =
@@ -196,6 +387,10 @@ export default function WhatsAppConfiguracaoPage() {
 
       setSdkReady(true);
     }, [appId]);
+
+  useEffect(() => {
+    void carregarContas();
+  }, [carregarContas]);
 
   useEffect(() => {
     if (!appId) {
@@ -273,6 +468,140 @@ export default function WhatsAppConfiguracaoPage() {
     inicializarSdk,
   ]);
 
+  const finalizarCadastro =
+    useCallback(
+      async (
+        code: string,
+        sessionData:
+          EmbeddedSignupData |
+          null,
+        onboardingEvent:
+          string |
+          null
+      ) => {
+        if (
+          finalizingRef.current
+        ) {
+          return;
+        }
+
+        finalizingRef.current =
+          true;
+
+        setFinalizing(true);
+        setLoading(true);
+        setError(null);
+
+        if (
+          fallbackTimerRef.current
+        ) {
+          window.clearTimeout(
+            fallbackTimerRef.current
+          );
+
+          fallbackTimerRef.current =
+            null;
+        }
+
+        try {
+          const token =
+            await pegarToken();
+
+          const response =
+            await fetch(
+              "/api/whatsapp/onboarding",
+              {
+                method: "POST",
+
+                headers: {
+                  "Content-Type":
+                    "application/json",
+
+                  Authorization:
+                    `Bearer ${token}`,
+                },
+
+                body:
+                  JSON.stringify({
+                    code,
+
+                    wabaId:
+                      sessionData
+                        ?.waba_id ||
+                      null,
+
+                    phoneNumberId:
+                      sessionData
+                        ?.phone_number_id ||
+                      null,
+
+                    businessId:
+                      sessionData
+                        ?.business_id ||
+                      sessionData
+                        ?.businessId ||
+                      null,
+
+                    onboardingEvent,
+                  }),
+              }
+            );
+
+          const data =
+            (
+              await response
+                .json()
+            ) as OnboardingApiResponse;
+
+          if (!response.ok) {
+            throw new Error(
+              data.error ||
+                "Não foi possível finalizar a conexão do WhatsApp."
+            );
+          }
+
+          if (data.account) {
+            setWabaId(
+              data.account
+                .wabaId ||
+                null
+            );
+
+            setPhoneNumberId(
+              data.account
+                .phoneNumberId ||
+                null
+            );
+          }
+
+          setSuccess(
+            data.message ||
+              "WhatsApp conectado ao CRM Zion com sucesso."
+          );
+
+          await carregarContas();
+        } catch (err) {
+          setSuccess(null);
+
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Erro ao finalizar a conexão do WhatsApp."
+          );
+        } finally {
+          finalizingRef.current =
+            false;
+
+          setFinalizing(false);
+          setLoading(false);
+        }
+      },
+      [
+        carregarContas,
+        pegarToken,
+      ]
+    );
+
   useEffect(() => {
     const sessionInfoListener =
       (
@@ -314,32 +643,39 @@ export default function WhatsAppConfiguracaoPage() {
           sessionRef.current =
             sessionData;
 
-          const receivedWabaId =
-            sessionData.waba_id ||
-            null;
-
-          const receivedPhoneNumberId =
-            sessionData.phone_number_id ||
+          onboardingEventRef.current =
+            data.event ||
             null;
 
           setWabaId(
-            receivedWabaId
+            sessionData
+              .waba_id ||
+              null
           );
 
           setPhoneNumberId(
-            receivedPhoneNumberId
+            sessionData
+              .phone_number_id ||
+              null
           );
 
           setError(null);
 
-          setSuccess(
-            data.event ===
-              "FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING"
-              ? "Cadastro por coexistência concluído na Meta. O WhatsApp Business foi autorizado."
-              : "Cadastro do WhatsApp concluído na Meta."
-          );
+          const code =
+            authCodeRef.current;
 
-          setLoading(false);
+          if (code) {
+            void finalizarCadastro(
+              code,
+              sessionData,
+              data.event ||
+                null
+            );
+          } else {
+            setSuccess(
+              "A Meta concluiu o cadastro. Aguardando a autorização para finalizar a conexão."
+            );
+          }
 
           return;
         }
@@ -349,6 +685,7 @@ export default function WhatsAppConfiguracaoPage() {
           "ERROR"
         ) {
           setLoading(false);
+          setFinalizing(false);
 
           setSuccess(null);
 
@@ -366,6 +703,7 @@ export default function WhatsAppConfiguracaoPage() {
           "CANCEL"
         ) {
           setLoading(false);
+          setFinalizing(false);
 
           setSuccess(null);
 
@@ -392,15 +730,29 @@ export default function WhatsAppConfiguracaoPage() {
         sessionInfoListener
       );
     };
+  }, [finalizarCadastro]);
+
+  useEffect(() => {
+    return () => {
+      if (
+        fallbackTimerRef.current
+      ) {
+        window.clearTimeout(
+          fallbackTimerRef.current
+        );
+      }
+    };
   }, []);
 
   const conectarWhatsApp =
     useCallback(() => {
       setError(null);
       setSuccess(null);
+
       setAuthorizationReceived(
         false
       );
+
       setWabaId(null);
       setPhoneNumberId(null);
 
@@ -410,11 +762,36 @@ export default function WhatsAppConfiguracaoPage() {
       sessionRef.current =
         null;
 
+      onboardingEventRef.current =
+        null;
+
+      finalizingRef.current =
+        false;
+
+      if (
+        fallbackTimerRef.current
+      ) {
+        window.clearTimeout(
+          fallbackTimerRef.current
+        );
+
+        fallbackTimerRef.current =
+          null;
+      }
+
       if (
         !configuracaoPronta
       ) {
         setError(
           "As variáveis NEXT_PUBLIC_META_APP_ID e NEXT_PUBLIC_WHATSAPP_CONFIG_ID não foram encontradas."
+        );
+
+        return;
+      }
+
+      if (!canManage) {
+        setError(
+          "Somente administradores podem conectar uma conta do WhatsApp."
         );
 
         return;
@@ -454,14 +831,52 @@ export default function WhatsAppConfiguracaoPage() {
               true
             );
 
+            setSuccess(
+              "Autorização da Meta recebida. Finalizando a conexão do WhatsApp..."
+            );
+
             /*
-             * Não mostramos nem armazenamos
-             * o código no navegador.
-             *
-             * No próximo passo ele será enviado
-             * imediatamente para uma rota segura
-             * do backend do CRM Zion.
+             * Normalmente o postMessage FINISH
+             * chega praticamente junto do code.
+             * No Coexistence ele pode conter apenas
+             * o WABA. Se o postMessage não chegar,
+             * o backend ainda consegue descobrir
+             * os ativos concedidos pelo token.
              */
+            const sessionData =
+              sessionRef.current;
+
+            if (sessionData) {
+              void finalizarCadastro(
+                code,
+                sessionData,
+                onboardingEventRef
+                  .current
+              );
+
+              return;
+            }
+
+            fallbackTimerRef.current =
+              window.setTimeout(
+                () => {
+                  fallbackTimerRef.current =
+                    null;
+
+                  if (
+                    !finalizingRef.current
+                  ) {
+                    void finalizarCadastro(
+                      code,
+                      sessionRef.current,
+                      onboardingEventRef
+                        .current
+                    );
+                  }
+                },
+                1800
+              );
+
             return;
           }
 
@@ -491,18 +906,16 @@ export default function WhatsAppConfiguracaoPage() {
           extras: {
             setup: {},
 
-            /*
-             * Ativa o fluxo oficial de
-             * WhatsApp Business App Coexistence.
-             */
             featureType:
               "whatsapp_business_app_onboarding",
           },
         }
       );
     }, [
+      canManage,
       configId,
       configuracaoPronta,
+      finalizarCadastro,
       sdkReady,
     ]);
 
@@ -606,7 +1019,7 @@ export default function WhatsAppConfiguracaoPage() {
               </h2>
 
               <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                Ao continuar, será aberta a janela oficial da Meta. Para contas elegíveis ao modo de coexistência, o próprio fluxo apresentará as etapas necessárias para vincular o WhatsApp Business existente.
+                A Meta solicitará uma autorização única para conectar a conta empresarial. Depois, você poderá vincular o WhatsApp Business escolhido ao CRM.
               </p>
             </div>
 
@@ -617,18 +1030,23 @@ export default function WhatsAppConfiguracaoPage() {
               }
               disabled={
                 loading ||
+                finalizing ||
                 !sdkReady ||
-                !configuracaoPronta
+                !configuracaoPronta ||
+                !canManage
               }
               className="inline-flex min-w-[190px] items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {loading ? (
+              {loading ||
+              finalizing ? (
                 <>
                   <Loader2
                     size={18}
                     className="animate-spin"
                   />
-                  Abrindo Meta...
+                  {finalizing
+                    ? "Conectando..."
+                    : "Abrindo Meta..."}
                 </>
               ) : (
                 <>
@@ -709,7 +1127,7 @@ export default function WhatsAppConfiguracaoPage() {
 
               <div>
                 <p className="text-sm font-semibold text-emerald-700">
-                  Etapa da Meta concluída
+                  Conexão WhatsApp
                 </p>
 
                 <p className="mt-1 text-sm text-emerald-600">
@@ -722,9 +1140,9 @@ export default function WhatsAppConfiguracaoPage() {
           {(authorizationReceived ||
             wabaId ||
             phoneNumberId) && (
-            <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+            <div className="mb-5 rounded-xl border border-blue-200 bg-blue-50 p-4">
               <p className="text-sm font-semibold text-blue-800">
-                Dados do cadastro recebidos
+                Dados do cadastro
               </p>
 
               <div className="mt-3 space-y-2 text-xs text-blue-700">
@@ -740,30 +1158,115 @@ export default function WhatsAppConfiguracaoPage() {
 
                 {wabaId && (
                   <p>
-                    WABA identificado:
+                    Conta WhatsApp:
                     {" "}
                     <strong>
-                      {wabaId}
+                      identificada
                     </strong>
                   </p>
                 )}
 
                 {phoneNumberId && (
                   <p>
-                    Número identificado:
+                    Número:
                     {" "}
                     <strong>
-                      {phoneNumberId}
+                      identificado
                     </strong>
                   </p>
                 )}
               </div>
-
-              <p className="mt-3 text-xs leading-5 text-blue-600">
-                Nesta etapa estamos validando o Cadastro Incorporado e o fluxo de QR Code. A credencial temporária não é exibida nem salva no navegador. No próximo passo vamos finalizar a conexão no backend e gravar a conta no CRM.
-              </p>
             </div>
           )}
+
+          <div className="mt-6">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">
+                  Números conectados
+                </h3>
+
+                <p className="mt-1 text-xs text-slate-500">
+                  Contas do WhatsApp vinculadas a este ambiente do CRM.
+                </p>
+              </div>
+
+              {loadingAccounts && (
+                <Loader2
+                  size={18}
+                  className="animate-spin text-slate-400"
+                />
+              )}
+            </div>
+
+            {!loadingAccounts &&
+            accounts.length ===
+              0 ? (
+              <div className="rounded-xl border border-dashed border-slate-300 p-5 text-sm text-slate-500">
+                Nenhum WhatsApp conectado por enquanto.
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {accounts.map(
+                  (account) => (
+                    <div
+                      key={
+                        account.id
+                      }
+                      className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <p className="font-semibold text-slate-800">
+                          {account
+                            .verifiedName ||
+                            "WhatsApp Business"}
+                        </p>
+
+                        <p className="mt-1 text-sm text-slate-500">
+                          {formatarNumero(
+                            account
+                              .displayPhoneNumber
+                          )}
+                        </p>
+
+                        <p className="mt-1 text-xs text-slate-400">
+                          {nomeTipoConexao(
+                            account
+                              .connectedVia
+                          )}
+                        </p>
+                      </div>
+
+                      <div
+                        className={`inline-flex w-fit items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${
+                          account.status ===
+                          "active"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {account.status ===
+                        "active" ? (
+                          <CheckCircle2
+                            size={14}
+                          />
+                        ) : (
+                          <XCircle
+                            size={14}
+                          />
+                        )}
+
+                        {account.status ===
+                        "active"
+                          ? "Conectado"
+                          : "Inativo"}
+                      </div>
+                    </div>
+                  )
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
