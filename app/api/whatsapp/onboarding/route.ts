@@ -4,8 +4,14 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-const JSSDK_REDIRECT_URI =
-  "https://www.facebook.com/connect/login_success.html";
+/*
+ * O FB.login() do JavaScript SDK não expõe um redirect_uri
+ * customizável neste fluxo. Na troca do authorization code,
+ * a Meta exige que o parâmetro corresponda ao usado pelo SDK.
+ * Para o Embedded Signup via JSSDK, enviamos explicitamente
+ * redirect_uri vazio, em vez de apontar para facebook.com.
+ */
+const JSSDK_REDIRECT_URI = "";
 
 type CurrentUser = {
   id: string;
