@@ -4,6 +4,9 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
+const JSSDK_REDIRECT_URI =
+  "https://www.facebook.com/connect/login_success.html";
+
 type CurrentUser = {
   id: string;
   name: string | null;
@@ -444,6 +447,16 @@ async function trocarCodigoPorToken(
   url.searchParams.set(
     "code",
     code
+  );
+
+  url.searchParams.set(
+    "grant_type",
+    "authorization_code"
+  );
+
+  url.searchParams.set(
+    "redirect_uri",
+    JSSDK_REDIRECT_URI
   );
 
   const response =
