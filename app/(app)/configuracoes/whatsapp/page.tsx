@@ -648,6 +648,26 @@ export default function WhatsAppConfiguracaoPage() {
             data.data ||
             {};
 
+          /*
+           * O code e o evento FINISH são sinais independentes.
+           * Não finalizamos o backend até a Meta informar o WABA
+           * escolhido/conectado naquele onboarding.
+           */
+          if (
+            !sessionData
+              .waba_id
+          ) {
+            setLoading(false);
+            setFinalizing(false);
+            setSuccess(null);
+
+            setError(
+              "A Meta concluiu a autorização, mas não retornou a conta do WhatsApp (WABA). Reabra a conexão e conclua todas as etapas do WhatsApp no popup da Meta."
+            );
+
+            return;
+          }
+
           sessionRef.current =
             sessionData;
 
@@ -657,8 +677,7 @@ export default function WhatsAppConfiguracaoPage() {
 
           setWabaId(
             sessionData
-              .waba_id ||
-              null
+              .waba_id
           );
 
           setPhoneNumberId(
@@ -668,6 +687,17 @@ export default function WhatsAppConfiguracaoPage() {
           );
 
           setError(null);
+
+          if (
+            fallbackTimerRef.current
+          ) {
+            window.clearTimeout(
+              fallbackTimerRef.current
+            );
+
+            fallbackTimerRef.current =
+              null;
+          }
 
           const code =
             authCodeRef.current;
@@ -688,7 +718,7 @@ export default function WhatsAppConfiguracaoPage() {
             );
           } else {
             setSuccess(
-              "A Meta concluiu o cadastro. Aguardando a autorização para finalizar a conexão."
+              "Conta do WhatsApp identificada. Aguardando a autorização da Meta para finalizar a conexão."
             );
           }
 
@@ -944,14 +974,17 @@ export default function WhatsAppConfiguracaoPage() {
               true
             );
 
-            setSuccess(
-              "Autorização da Meta recebida. Finalizando a conexão do WhatsApp..."
-            );
-
             const sessionData =
               sessionRef.current;
 
-            if (sessionData) {
+            if (
+              sessionData
+                ?.waba_id
+            ) {
+              setSuccess(
+                "Autorização e conta do WhatsApp recebidas. Finalizando a conexão..."
+              );
+
               void finalizarCadastro(
                 code,
                 redirectUri,
@@ -963,33 +996,37 @@ export default function WhatsAppConfiguracaoPage() {
               return;
             }
 
+            setSuccess(
+              "Autorização recebida. Aguardando a Meta informar a conta do WhatsApp escolhida para concluir a conexão."
+            );
+
+            /*
+             * Não chamamos mais o backend somente com o code.
+             * Aguardamos também o FINISH do Embedded Signup,
+             * que contém o waba_id. O timeout serve apenas para
+             * evitar uma tela presa caso esse evento não chegue.
+             */
             fallbackTimerRef.current =
               window.setTimeout(
                 () => {
                   fallbackTimerRef.current =
                     null;
 
-                  const codeAtual =
-                    authCodeRef.current;
-
-                  const redirectUriAtual =
-                    oauthRedirectUriRef.current;
-
                   if (
-                    codeAtual &&
-                    redirectUriAtual &&
-                    !finalizingRef.current
+                    !finalizingRef.current &&
+                    !sessionRef.current
+                      ?.waba_id
                   ) {
-                    void finalizarCadastro(
-                      codeAtual,
-                      redirectUriAtual,
-                      sessionRef.current,
-                      onboardingEventRef
-                        .current
+                    setLoading(false);
+                    setFinalizing(false);
+                    setSuccess(null);
+
+                    setError(
+                      "A autorização da Meta foi recebida, mas a conta do WhatsApp não foi retornada. Abra a conexão novamente e conclua todas as etapas do WhatsApp no popup da Meta."
                     );
                   }
                 },
-                1800
+                20000
               );
 
             return;
