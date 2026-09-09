@@ -52,6 +52,9 @@ type Conversation = {
   status: ConversationStatus;
   unreadCount: number;
   lastMessageAt: string | null;
+  lastCustomerMessageAt: string | null;
+  serviceWindowExpiresAt: string | null;
+  serviceWindowOpen: boolean;
   createdAt: string;
   updatedAt: string;
   contact: Contact | null;
@@ -72,6 +75,9 @@ type ConversationDetail = {
     status: ConversationStatus;
     unreadCount: number;
     lastMessageAt: string | null;
+    lastCustomerMessageAt: string | null;
+    serviceWindowExpiresAt: string | null;
+    serviceWindowOpen: boolean;
     createdAt: string;
     updatedAt: string;
   };
@@ -308,6 +314,94 @@ function classeStatusAtendimento(
   return "bg-emerald-50 text-emerald-700 border-emerald-200";
 }
 
+type ServiceWindowInfo = {
+  open: boolean;
+  label: string;
+  remaining: string | null;
+  className: string;
+};
+
+function calcularJanelaAtendimento(
+  expiresAt: string | null,
+  agoraMs: number
+): ServiceWindowInfo {
+  if (!expiresAt) {
+    return {
+      open: false,
+      label: "Janela indisponível",
+      remaining: null,
+      className:
+        "border-slate-200 bg-slate-50 text-slate-500",
+    };
+  }
+
+  const expires =
+    new Date(expiresAt).getTime();
+
+  if (
+    Number.isNaN(expires)
+  ) {
+    return {
+      open: false,
+      label: "Janela indisponível",
+      remaining: null,
+      className:
+        "border-slate-200 bg-slate-50 text-slate-500",
+    };
+  }
+
+  const restanteMs =
+    expires - agoraMs;
+
+  if (restanteMs <= 0) {
+    return {
+      open: false,
+      label: "Janela encerrada",
+      remaining: null,
+      className:
+        "border-red-200 bg-red-50 text-red-700",
+    };
+  }
+
+  const totalMinutos =
+    Math.ceil(
+      restanteMs /
+        (60 * 1000)
+    );
+
+  const horas =
+    Math.floor(
+      totalMinutos / 60
+    );
+
+  const minutos =
+    totalMinutos % 60;
+
+  let remaining =
+    "";
+
+  if (horas > 0) {
+    remaining =
+      `${horas}h ${minutos}min restantes`;
+  } else if (
+    minutos > 0
+  ) {
+    remaining =
+      `${minutos}min restantes`;
+  } else {
+    remaining =
+      "menos de 1min restante";
+  }
+
+  return {
+    open: true,
+    label: "Atendimento aberto",
+    remaining,
+    className:
+      "border-emerald-200 bg-emerald-50 text-emerald-700",
+  };
+}
+
 export default function WhatsAppPage() {
   const [conversations, setConversations] =
     useState<Conversation[]>([]);
@@ -378,6 +472,9 @@ export default function WhatsAppPage() {
   const [success, setSuccess] =
     useState<string | null>(null);
 
+  const [agoraMs, setAgoraMs] =
+    useState(() => Date.now());
+
   const messagesEndRef =
     useRef<HTMLDivElement | null>(null);
 
@@ -390,6 +487,24 @@ export default function WhatsAppPage() {
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+
+  useEffect(() => {
+    const interval =
+      window.setInterval(
+        () => {
+          setAgoraMs(
+            Date.now()
+          );
+        },
+        30000
+      );
+
+    return () => {
+      window.clearInterval(
+        interval
+      );
+    };
+  }, []);
 
   const pegarToken =
     useCallback(async () => {
@@ -1617,6 +1732,32 @@ export default function WhatsAppPage() {
       [conversations]
     );
 
+  const janelaAtendimento =
+    useMemo(
+      () =>
+        calcularJanelaAtendimento(
+          detail?.conversation
+            .serviceWindowExpiresAt ||
+            null,
+          agoraMs
+        ),
+      [
+        detail?.conversation
+          .serviceWindowExpiresAt,
+        agoraMs,
+      ]
+    );
+
+  useEffect(() => {
+    if (janelaAtendimento.open) {
+      return;
+    }
+
+    setQuickMenuOpen(false);
+    setQuickSearch("");
+    setMessageText("");
+  }, [janelaAtendimento.open]);
+
   const podeAtribuir =
     currentUser
       ? [
@@ -1954,19 +2095,49 @@ export default function WhatsAppPage() {
                   </div>
                 </div>
 
-                <span
-                  className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium ${classeStatusAtendimento(
-                    detail
-                      .conversation
-                      .status
-                  )}`}
-                >
-                  {nomeStatusAtendimento(
-                    detail
-                      .conversation
-                      .status
-                  )}
-                </span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <div
+                    className={`rounded-xl border px-3 py-2 ${janelaAtendimento.className}`}
+                  >
+                    <div className="flex items-center gap-1.5 text-xs font-semibold">
+                      <span
+                        aria-hidden="true"
+                      >
+                        {janelaAtendimento.open
+                          ? "●"
+                          : "●"}
+                      </span>
+
+                      <span>
+                        {
+                          janelaAtendimento.label
+                        }
+                      </span>
+                    </div>
+
+                    {janelaAtendimento.remaining && (
+                      <p className="mt-0.5 text-[10px] font-medium opacity-80">
+                        {
+                          janelaAtendimento.remaining
+                        }
+                      </p>
+                    )}
+                  </div>
+
+                  <span
+                    className={`rounded-full border px-3 py-1.5 text-xs font-medium ${classeStatusAtendimento(
+                      detail
+                        .conversation
+                        .status
+                    )}`}
+                  >
+                    {nomeStatusAtendimento(
+                      detail
+                        .conversation
+                        .status
+                    )}
+                  </span>
+                </div>
               </div>
 
               {/* CONTROLES */}
@@ -2224,185 +2395,209 @@ export default function WhatsAppPage() {
             </div>
 
             {/* ENVIO */}
-            <form
-              onSubmit={
-                handleSubmit
-              }
-              className="relative shrink-0 border-t border-slate-200 bg-white p-4"
-            >
-              {quickMenuOpen && (
-                <div className="absolute bottom-[92px] left-4 z-30 w-[420px] max-w-[calc(100%-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
-                  <div className="border-b border-slate-100 p-3">
-                    <input
-                      value={
-                        quickSearch
-                      }
-                      onChange={(event) =>
-                        setQuickSearch(
-                          event
-                            .target
-                            .value
-                        )
-                      }
-                      placeholder="Buscar mensagem rápida..."
-                      autoFocus
-                      className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-slate-400"
-                    />
-                  </div>
+            {janelaAtendimento.open ? (
+              <form
+                onSubmit={
+                  handleSubmit
+                }
+                className="relative shrink-0 border-t border-slate-200 bg-white p-4"
+              >
+                {quickMenuOpen && (
+                  <div className="absolute bottom-[92px] left-4 z-30 w-[420px] max-w-[calc(100%-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl">
+                    <div className="border-b border-slate-100 p-3">
+                      <input
+                        value={
+                          quickSearch
+                        }
+                        onChange={(event) =>
+                          setQuickSearch(
+                            event
+                              .target
+                              .value
+                          )
+                        }
+                        placeholder="Buscar mensagem rápida..."
+                        autoFocus
+                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm outline-none focus:border-slate-400"
+                      />
+                    </div>
 
-                  <div className="max-h-[320px] overflow-y-auto">
-                    {quickMessagesFiltradas.length ===
-                    0 ? (
-                      <div className="px-4 py-8 text-center">
-                        <p className="text-sm text-slate-500">
-                          Nenhuma mensagem encontrada.
-                        </p>
-                      </div>
-                    ) : (
-                      quickMessagesFiltradas.map(
+                    <div className="max-h-[320px] overflow-y-auto">
+                      {quickMessagesFiltradas.length ===
+                      0 ? (
+                        <div className="px-4 py-8 text-center">
+                          <p className="text-sm text-slate-500">
+                            Nenhuma mensagem encontrada.
+                          </p>
+                        </div>
+                      ) : (
+                        quickMessagesFiltradas.map(
+                          (item) => (
+                            <button
+                              key={
+                                item.id
+                              }
+                              type="button"
+                              onClick={() =>
+                                usarMensagemRapida(
+                                  item
+                                )
+                              }
+                              className="block w-full border-b border-slate-100 px-4 py-3 text-left transition last:border-b-0 hover:bg-slate-50"
+                            >
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-semibold text-slate-800">
+                                  {
+                                    item.title
+                                  }
+                                </p>
+
+                                {item.shortcut && (
+                                  <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
+                                    {
+                                      item.shortcut
+                                    }
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
+                                {
+                                  item.body
+                                }
+                              </p>
+                            </button>
+                          )
+                        )
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mx-auto max-w-4xl">
+                  <div className="mb-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuickMenuOpen(
+                          (current) =>
+                            !current
+                        );
+
+                        setQuickSearch("");
+                      }}
+                      className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                    >
+                      Mensagens rápidas
+                    </button>
+
+                    {quickMessages
+                      .filter(
+                        (item) =>
+                          item.shortcut
+                      )
+                      .slice(0, 4)
+                      .map(
                         (item) => (
                           <button
                             key={
                               item.id
                             }
                             type="button"
+                            title={
+                              item.title
+                            }
                             onClick={() =>
                               usarMensagemRapida(
                                 item
                               )
                             }
-                            className="block w-full border-b border-slate-100 px-4 py-3 text-left transition last:border-b-0 hover:bg-slate-50"
+                            className="hidden rounded-md bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500 transition hover:bg-slate-200 md:block"
                           >
-                            <div className="flex items-center gap-2">
-                              <p className="text-sm font-semibold text-slate-800">
-                                {
-                                  item.title
-                                }
-                              </p>
-
-                              {item.shortcut && (
-                                <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500">
-                                  {
-                                    item.shortcut
-                                  }
-                                </span>
-                              )}
-                            </div>
-
-                            <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">
-                              {
-                                item.body
-                              }
-                            </p>
+                            {
+                              item.shortcut
+                            }
                           </button>
                         )
-                      )
-                    )}
+                      )}
+                  </div>
+
+                  <div className="flex items-end gap-3">
+                    <textarea
+                      ref={
+                        textareaRef
+                      }
+                      value={
+                        messageText
+                      }
+                      onChange={(event) =>
+                        alterarTextoMensagem(
+                          event
+                            .target
+                            .value
+                        )
+                      }
+                      onKeyDown={
+                        handleKeyDown
+                      }
+                      disabled={sending}
+                      maxLength={4096}
+                      rows={1}
+                      placeholder="Digite uma mensagem ou use /atalho..."
+                      className="max-h-32 min-h-[46px] flex-1 resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 disabled:bg-slate-50"
+                    />
+
+                    <button
+                      type="submit"
+                      disabled={
+                        sending ||
+                        !messageText.trim()
+                      }
+                      className="h-[46px] rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                    >
+                      {sending
+                        ? "Enviando..."
+                        : "Enviar"}
+                    </button>
+                  </div>
+
+                  <div className="mt-2 flex justify-between px-1">
+                    <p className="text-[10px] text-slate-400">
+                      Enter envia. Shift + Enter quebra linha. Digite um atalho como /ola.
+                    </p>
+
+                    <p className="text-[10px] text-slate-400">
+                      {
+                        messageText.length
+                      }
+                      /4096
+                    </p>
                   </div>
                 </div>
-              )}
+              </form>
+            ) : (
+              <div className="shrink-0 border-t border-slate-200 bg-white p-4">
+                <div className="mx-auto max-w-4xl">
+                  <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-4">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-100 text-sm">
+                        🔒
+                      </div>
 
-              <div className="mx-auto max-w-4xl">
-                <div className="mb-2 flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setQuickMenuOpen(
-                        (current) =>
-                          !current
-                      );
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-red-800">
+                          Janela de atendimento encerrada
+                        </p>
 
-                      setQuickSearch("");
-                    }}
-                    className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
-                  >
-                    Mensagens rápidas
-                  </button>
-
-                  {quickMessages
-                    .filter(
-                      (item) =>
-                        item.shortcut
-                    )
-                    .slice(0, 4)
-                    .map(
-                      (item) => (
-                        <button
-                          key={
-                            item.id
-                          }
-                          type="button"
-                          title={
-                            item.title
-                          }
-                          onClick={() =>
-                            usarMensagemRapida(
-                              item
-                            )
-                          }
-                          className="hidden rounded-md bg-slate-100 px-2 py-1 font-mono text-[10px] text-slate-500 transition hover:bg-slate-200 md:block"
-                        >
-                          {
-                            item.shortcut
-                          }
-                        </button>
-                      )
-                    )}
-                </div>
-
-                <div className="flex items-end gap-3">
-                  <textarea
-                    ref={
-                      textareaRef
-                    }
-                    value={
-                      messageText
-                    }
-                    onChange={(event) =>
-                      alterarTextoMensagem(
-                        event
-                          .target
-                          .value
-                      )
-                    }
-                    onKeyDown={
-                      handleKeyDown
-                    }
-                    disabled={sending}
-                    maxLength={4096}
-                    rows={1}
-                    placeholder="Digite uma mensagem ou use /atalho..."
-                    className="max-h-32 min-h-[46px] flex-1 resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-400 disabled:bg-slate-50"
-                  />
-
-                  <button
-                    type="submit"
-                    disabled={
-                      sending ||
-                      !messageText.trim()
-                    }
-                    className="h-[46px] rounded-xl bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  >
-                    {sending
-                      ? "Enviando..."
-                      : "Enviar"}
-                  </button>
-                </div>
-
-                <div className="mt-2 flex justify-between px-1">
-                  <p className="text-[10px] text-slate-400">
-                    Enter envia. Shift + Enter quebra linha. Digite um atalho como /ola.
-                  </p>
-
-                  <p className="text-[10px] text-slate-400">
-                    {
-                      messageText.length
-                    }
-                    /4096
-                  </p>
+                        <p className="mt-1 text-xs leading-5 text-red-700">
+                          Para continuar o atendimento, envie um template aprovado.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
-            </form>
+            )}
           </>
         ) : null}
       </section>

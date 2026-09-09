@@ -18,6 +18,7 @@ type ConversationRow = {
   whatsappAccountId: string;
   contactId: string;
   status: string;
+  lastCustomerMessageAt: string | null;
 };
 
 type ContactRow = {
@@ -325,7 +326,7 @@ async function validarAcessoConversa(
     await supabaseAdmin
       .from("Conversation")
       .select(
-        "id, companyId, whatsappAccountId, contactId, status"
+        "id, companyId, whatsappAccountId, contactId, status, lastCustomerMessageAt"
       )
       .eq(
         "id",
@@ -545,6 +546,119 @@ export async function POST(
       contact,
       account,
     } = acesso;
+
+    /*
+     * JANELA DE ATENDIMENTO
+     *
+     * Mensagens de texto livre só
+     * podem ser enviadas enquanto
+     * a janela de 24 horas estiver
+     * aberta.
+     *
+     * A janela é calculada sempre
+     * a partir da última mensagem
+     * recebida DO CLIENTE.
+     *
+     * Respostas enviadas pelo CRM
+     * não reiniciam esse relógio.
+     */
+    const lastCustomerMessageAt =
+      conversation
+        .lastCustomerMessageAt;
+
+    if (
+      !lastCustomerMessageAt
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "A janela de atendimento está encerrada. Use um template aprovado para retomar o atendimento.",
+
+          code:
+            "SERVICE_WINDOW_CLOSED",
+
+          serviceWindowOpen:
+            false,
+
+          lastCustomerMessageAt:
+            null,
+
+          serviceWindowExpiresAt:
+            null,
+        },
+        {
+          status: 409,
+        }
+      );
+    }
+
+    const ultimaMensagemCliente =
+      new Date(
+        lastCustomerMessageAt
+      );
+
+    if (
+      Number.isNaN(
+        ultimaMensagemCliente
+          .getTime()
+      )
+    ) {
+      console.error(
+        "lastCustomerMessageAt inválido:",
+        lastCustomerMessageAt
+      );
+
+      return NextResponse.json(
+        {
+          error:
+            "Não foi possível validar a janela de atendimento.",
+
+          code:
+            "INVALID_SERVICE_WINDOW",
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    const serviceWindowExpiresAt =
+      new Date(
+        ultimaMensagemCliente
+          .getTime() +
+          24 * 60 * 60 * 1000
+      );
+
+    const serviceWindowOpen =
+      Date.now() <
+      serviceWindowExpiresAt
+        .getTime();
+
+    if (
+      !serviceWindowOpen
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "A janela de atendimento de 24 horas foi encerrada. Use um template aprovado para retomar o atendimento.",
+
+          code:
+            "SERVICE_WINDOW_CLOSED",
+
+          serviceWindowOpen:
+            false,
+
+          lastCustomerMessageAt,
+
+          serviceWindowExpiresAt:
+            serviceWindowExpiresAt
+              .toISOString(),
+        },
+        {
+          status: 409,
+        }
+      );
+    }
 
     const destinatario =
       contact.whatsappWaId ||

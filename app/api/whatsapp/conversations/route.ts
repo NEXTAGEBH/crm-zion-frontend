@@ -25,6 +25,7 @@ type ConversationRow = {
   status: ConversationStatus;
   unreadCount: number;
   lastMessageAt: string | null;
+  lastCustomerMessageAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -50,6 +51,59 @@ type MessageRow = {
   messageTimestamp: string | null;
   createdAt: string;
 };
+
+function adicionarJanelaAtendimento(
+  conversation: ConversationRow
+) {
+  const lastCustomerMessageAt =
+    conversation.lastCustomerMessageAt;
+
+  if (!lastCustomerMessageAt) {
+    return {
+      ...conversation,
+      serviceWindowExpiresAt:
+        null as string | null,
+      serviceWindowOpen:
+        false,
+    };
+  }
+
+  const ultimaMensagemCliente =
+    new Date(
+      lastCustomerMessageAt
+    );
+
+  if (
+    Number.isNaN(
+      ultimaMensagemCliente.getTime()
+    )
+  ) {
+    return {
+      ...conversation,
+      serviceWindowExpiresAt:
+        null as string | null,
+      serviceWindowOpen:
+        false,
+    };
+  }
+
+  const serviceWindowExpiresAt =
+    new Date(
+      ultimaMensagemCliente.getTime() +
+        24 * 60 * 60 * 1000
+    );
+
+  return {
+    ...conversation,
+
+    serviceWindowExpiresAt:
+      serviceWindowExpiresAt.toISOString(),
+
+    serviceWindowOpen:
+      Date.now() <
+      serviceWindowExpiresAt.getTime(),
+  };
+}
 
 function getSupabaseAdmin() {
   const supabaseUrl =
@@ -355,7 +409,7 @@ async function validarConversa(
     await supabaseAdmin
       .from("Conversation")
       .select(
-        "id, companyId, whatsappAccountId, contactId, status, unreadCount, lastMessageAt, createdAt, updatedAt"
+        "id, companyId, whatsappAccountId, contactId, status, unreadCount, lastMessageAt, lastCustomerMessageAt, createdAt, updatedAt"
       )
       .eq(
         "id",
@@ -497,7 +551,9 @@ export async function GET(
 
       return NextResponse.json({
         conversation:
-          acesso.conversation,
+          adicionarJanelaAtendimento(
+            acesso.conversation
+          ),
 
         contact:
           acesso.contact,
@@ -607,7 +663,7 @@ export async function GET(
       await supabaseAdmin
         .from("Conversation")
         .select(
-          "id, companyId, whatsappAccountId, contactId, status, unreadCount, lastMessageAt, createdAt, updatedAt"
+          "id, companyId, whatsappAccountId, contactId, status, unreadCount, lastMessageAt, lastCustomerMessageAt, createdAt, updatedAt"
         )
         .eq(
           "companyId",
@@ -761,7 +817,9 @@ export async function GET(
         (
           conversation
         ) => ({
-          ...conversation,
+          ...adicionarJanelaAtendimento(
+            conversation
+          ),
 
           contact:
             contactMap.get(
@@ -999,7 +1057,7 @@ export async function PATCH(
             currentUser.companyId
           )
           .select(
-            "id, companyId, whatsappAccountId, contactId, status, unreadCount, lastMessageAt, createdAt, updatedAt"
+            "id, companyId, whatsappAccountId, contactId, status, unreadCount, lastMessageAt, lastCustomerMessageAt, createdAt, updatedAt"
           )
           .single();
 
@@ -1052,7 +1110,9 @@ export async function PATCH(
           mensagem,
 
         conversation:
-          conversaAtualizada,
+          adicionarJanelaAtendimento(
+            conversaAtualizada as ConversationRow
+          ),
       });
     }
 
