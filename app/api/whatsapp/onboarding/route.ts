@@ -421,6 +421,69 @@ function calcularExpiracao(
   return null;
 }
 
+async function trocarCodigoPorToken(
+  code: string,
+  appId: string,
+  appSecret: string,
+  graphVersion: string,
+  redirectUri: string
+) {
+  const url =
+    new URL(
+      `https://graph.facebook.com/${graphVersion}/oauth/access_token`
+    );
+
+  url.searchParams.set(
+    "client_id",
+    appId
+  );
+
+  url.searchParams.set(
+    "client_secret",
+    appSecret
+  );
+
+  url.searchParams.set(
+    "code",
+    code
+  );
+
+  url.searchParams.set(
+    "redirect_uri",
+    redirectUri
+  );
+
+  const response =
+    await fetch(
+      url,
+      {
+        method: "GET",
+        cache: "no-store",
+      }
+    );
+
+  const data =
+    (
+      await response
+        .json()
+    ) as MetaTokenResponse;
+
+  if (
+    !response.ok ||
+    data.error ||
+    !data.access_token
+  ) {
+    throw new Error(
+      metaErrorMessage(
+        data.error,
+        "Não foi possível trocar o código do Cadastro Incorporado por uma credencial da Meta."
+      )
+    );
+  }
+
+  return data;
+}
+
 async function depurarToken(
   accessToken: string,
   appId: string,
@@ -1001,10 +1064,10 @@ export async function POST(
         unknown
       >;
 
-    const accessTokenFromSdk =
-      typeof body.accessToken ===
+    const code =
+      typeof body.code ===
       "string"
-        ? body.accessToken.trim()
+        ? body.code.trim()
         : "";
 
     const receivedWabaId =
@@ -1039,13 +1102,11 @@ export async function POST(
             .trim()
         : "";
 
-    if (!accessTokenFromSdk) {
+    if (!code) {
       return NextResponse.json(
         {
           error:
-            "A Meta não retornou o accessToken esperado pelo Cadastro Incorporado.",
-          code:
-            "META_ACCESS_TOKEN_MISSING",
+            "Código do Cadastro Incorporado não informado.",
         },
         {
           status: 400,
@@ -1091,23 +1152,34 @@ export async function POST(
     }
 
     /*
-     * O Cadastro Incorporado iniciado via Facebook JavaScript SDK
-     * devolve a credencial transitória no authResponse.accessToken.
-     * Não tratamos callback ids, "cb=..." ou authResponse.code como
-     * OAuth authorization codes. Isso evita o erro de redirect_uri
-     * na troca /oauth/access_token.
+     * O Embedded Signup com System-user access token exige
+     * response_type="code". O authorization code é trocado
+     * no servidor. O redirect_uri precisa ser exatamente o
+     * mesmo endereço da página que iniciou o FB.login().
      *
-     * A credencial é validada no servidor com /debug_token e depois
-     * armazenada somente de forma criptografada.
+     * Como esta API está no mesmo domínio do CRM, derivamos
+     * o endereço de produção diretamente da origem da requisição.
      */
-    const tokenResponse:
-      MetaTokenResponse = {
-        access_token:
-          accessTokenFromSdk,
-      };
+    const requestUrl =
+      new URL(
+        request.url
+      );
+
+    const redirectUri =
+      `${requestUrl.origin}/configuracoes/whatsapp`;
+
+    const tokenResponse =
+      await trocarCodigoPorToken(
+        code,
+        appId,
+        appSecret,
+        graphVersion,
+        redirectUri
+      );
 
     const accessToken =
-      accessTokenFromSdk;
+      tokenResponse
+        .access_token as string;
 
     const debugResponse =
       await depurarToken(

@@ -21,10 +21,7 @@ import { supabase } from "@/lib/supabaseClient";
 
 type FacebookLoginResponse = {
   authResponse?: {
-    accessToken?: string;
-    userID?: string;
-    expiresIn?: number;
-    signedRequest?: string;
+    code?: string;
   };
   status?: string;
 };
@@ -231,7 +228,7 @@ export default function WhatsAppConfiguracaoPage() {
     setCanManage,
   ] = useState(true);
 
-  const metaAccessTokenRef =
+  const authCodeRef =
     useRef<
       string | null
     >(null);
@@ -474,7 +471,7 @@ export default function WhatsAppConfiguracaoPage() {
   const finalizarCadastro =
     useCallback(
       async (
-        accessToken: string,
+        code: string,
         sessionData:
           EmbeddedSignupData |
           null,
@@ -526,7 +523,7 @@ export default function WhatsAppConfiguracaoPage() {
 
                 body:
                   JSON.stringify({
-                    accessToken,
+                    code,
 
                     wabaId:
                       sessionData
@@ -664,12 +661,12 @@ export default function WhatsAppConfiguracaoPage() {
 
           setError(null);
 
-          const accessToken =
-            metaAccessTokenRef.current;
+          const code =
+            authCodeRef.current;
 
-          if (accessToken) {
+          if (code) {
             void finalizarCadastro(
-              accessToken,
+              code,
               sessionData,
               data.event ||
                 null
@@ -759,7 +756,7 @@ export default function WhatsAppConfiguracaoPage() {
       setWabaId(null);
       setPhoneNumberId(null);
 
-      metaAccessTokenRef.current =
+      authCodeRef.current =
         null;
 
       sessionRef.current =
@@ -821,22 +818,14 @@ export default function WhatsAppConfiguracaoPage() {
         (
           response
         ) => {
-          const authResponse =
-            response.authResponse;
+          const code =
+            response
+              .authResponse
+              ?.code;
 
-          const accessToken =
-            authResponse
-              ?.accessToken;
-
-          /*
-           * Importante:
-           * o token do Embedded Signup é transitório no callback.
-           * FB.getAuthResponse() depois que o popup fecha pode
-           * retornar vazio, então capturamos aqui, imediatamente.
-           */
-          if (accessToken) {
-            metaAccessTokenRef.current =
-              accessToken;
+          if (code) {
+            authCodeRef.current =
+              code;
 
             setAuthorizationReceived(
               true
@@ -851,7 +840,7 @@ export default function WhatsAppConfiguracaoPage() {
 
             if (sessionData) {
               void finalizarCadastro(
-                accessToken,
+                code,
                 sessionData,
                 onboardingEventRef
                   .current
@@ -866,16 +855,15 @@ export default function WhatsAppConfiguracaoPage() {
                   fallbackTimerRef.current =
                     null;
 
-                  const tokenAtual =
-                    metaAccessTokenRef
-                      .current;
+                  const codeAtual =
+                    authCodeRef.current;
 
                   if (
-                    tokenAtual &&
+                    codeAtual &&
                     !finalizingRef.current
                   ) {
                     void finalizarCadastro(
-                      tokenAtual,
+                      codeAtual,
                       sessionRef.current,
                       onboardingEventRef
                         .current
@@ -890,17 +878,17 @@ export default function WhatsAppConfiguracaoPage() {
 
           setLoading(false);
           setFinalizing(false);
+          setSuccess(null);
 
           const authKeys =
             Object.keys(
-              authResponse ||
+              response
+                .authResponse ||
                 {}
             );
 
-          setSuccess(null);
-
           setError(
-            `A janela da Meta foi concluída, mas o SDK não retornou accessToken. Campos recebidos: ${
+            `A Meta não retornou o código de autorização esperado. Campos recebidos: ${
               authKeys.length > 0
                 ? authKeys.join(", ")
                 : "nenhum"
@@ -913,6 +901,12 @@ export default function WhatsAppConfiguracaoPage() {
 
           auth_type:
             "rerequest",
+
+          response_type:
+            "code",
+
+          override_default_response_type:
+            true,
 
           extras: {
             setup: {},
