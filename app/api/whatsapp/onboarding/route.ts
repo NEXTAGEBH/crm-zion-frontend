@@ -1070,6 +1070,12 @@ export async function POST(
         ? body.code.trim()
         : "";
 
+    const redirectUri =
+      typeof body.redirectUri ===
+      "string"
+        ? body.redirectUri.trim()
+        : "";
+
     const receivedWabaId =
       typeof body.wabaId ===
       "string"
@@ -1107,6 +1113,69 @@ export async function POST(
         {
           error:
             "Código do Cadastro Incorporado não informado.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (!redirectUri) {
+      return NextResponse.json(
+        {
+          error:
+            "redirect_uri do JavaScript SDK não informado.",
+          code:
+            "META_REDIRECT_URI_MISSING",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    /*
+     * O redirect_uri vem do próprio FB.login() e é um endpoint
+     * interno do JavaScript SDK da Meta (xd_arbiter). Não aceitamos
+     * URLs arbitrárias enviadas pelo navegador.
+     */
+    let parsedRedirectUri:
+      URL;
+
+    try {
+      parsedRedirectUri =
+        new URL(
+          redirectUri
+        );
+    } catch {
+      return NextResponse.json(
+        {
+          error:
+            "redirect_uri retornado pelo JavaScript SDK é inválido.",
+          code:
+            "META_REDIRECT_URI_INVALID",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
+
+    if (
+      parsedRedirectUri.protocol !==
+        "https:" ||
+      parsedRedirectUri.hostname !==
+        "staticxx.facebook.com" ||
+      !parsedRedirectUri.pathname.includes(
+        "/connect/xd_arbiter"
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "redirect_uri retornado não corresponde ao endpoint esperado do JavaScript SDK da Meta.",
+          code:
+            "META_REDIRECT_URI_REJECTED",
         },
         {
           status: 400,
@@ -1152,22 +1221,14 @@ export async function POST(
     }
 
     /*
-     * O Embedded Signup com System-user access token exige
-     * response_type="code". O authorization code é trocado
-     * no servidor. O redirect_uri precisa ser exatamente o
-     * mesmo endereço da página que iniciou o FB.login().
+     * O authorization code retornado por FB.login() fica vinculado
+     * ao redirect_uri interno que o próprio JavaScript SDK gerou
+     * para aquele popup. Esse valor é dinâmico e usa xd_arbiter.
      *
-     * Como esta API está no mesmo domínio do CRM, derivamos
-     * o endereço de produção diretamente da origem da requisição.
+     * Portanto, usamos exatamente o redirect_uri capturado no
+     * navegador, depois de validá-lo acima, em vez de assumir que
+     * a URL do CRM foi usada no diálogo OAuth.
      */
-    const requestUrl =
-      new URL(
-        request.url
-      );
-
-    const redirectUri =
-      `${requestUrl.origin}/configuracoes/whatsapp`;
-
     const tokenResponse =
       await trocarCodigoPorToken(
         code,

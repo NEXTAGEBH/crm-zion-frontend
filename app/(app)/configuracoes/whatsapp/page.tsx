@@ -233,6 +233,11 @@ export default function WhatsAppConfiguracaoPage() {
       string | null
     >(null);
 
+  const oauthRedirectUriRef =
+    useRef<
+      string | null
+    >(null);
+
   const sessionRef =
     useRef<
       EmbeddedSignupData | null
@@ -472,6 +477,7 @@ export default function WhatsAppConfiguracaoPage() {
     useCallback(
       async (
         code: string,
+        redirectUri: string,
         sessionData:
           EmbeddedSignupData |
           null,
@@ -524,6 +530,8 @@ export default function WhatsAppConfiguracaoPage() {
                 body:
                   JSON.stringify({
                     code,
+
+                    redirectUri,
 
                     wabaId:
                       sessionData
@@ -664,9 +672,16 @@ export default function WhatsAppConfiguracaoPage() {
           const code =
             authCodeRef.current;
 
-          if (code) {
+          const redirectUri =
+            oauthRedirectUriRef.current;
+
+          if (
+            code &&
+            redirectUri
+          ) {
             void finalizarCadastro(
               code,
+              redirectUri,
               sessionData,
               data.event ||
                 null
@@ -759,6 +774,9 @@ export default function WhatsAppConfiguracaoPage() {
       authCodeRef.current =
         null;
 
+      oauthRedirectUriRef.current =
+        null;
+
       sessionRef.current =
         null;
 
@@ -814,6 +832,84 @@ export default function WhatsAppConfiguracaoPage() {
 
       setLoading(true);
 
+      /*
+       * O Facebook JavaScript SDK cria dinamicamente um redirect_uri
+       * interno (xd_arbiter) para cada popup. O authorization code
+       * retornado fica vinculado exatamente a esse redirect_uri.
+       *
+       * Capturamos o valor gerado pelo próprio SDK no momento em que
+       * ele abre o popup. Não é token nem segredo e não é persistido.
+       * Ele será enviado ao backend somente junto com o code de uso único.
+       */
+      const originalWindowOpen =
+        window.open;
+
+      let windowOpenRestored =
+        false;
+
+      const restoreWindowOpen =
+        () => {
+          if (
+            windowOpenRestored
+          ) {
+            return;
+          }
+
+          window.open =
+            originalWindowOpen;
+
+          windowOpenRestored =
+            true;
+        };
+
+      window.open =
+        ((
+          url?: string | URL,
+          target?: string,
+          features?: string
+        ) => {
+          try {
+            const parsed =
+              new URL(
+                String(
+                  url || ""
+                ),
+                window.location.href
+              );
+
+            const redirectUri =
+              parsed.searchParams.get(
+                "redirect_uri"
+              );
+
+            if (
+              parsed.hostname
+                .toLowerCase()
+                .endsWith(
+                  "facebook.com"
+                ) &&
+              redirectUri
+            ) {
+              oauthRedirectUriRef.current =
+                redirectUri;
+            }
+          } catch {
+            // Aberturas que não sejam URL válidas seguem normalmente.
+          }
+
+          return originalWindowOpen.call(
+            window,
+            url,
+            target,
+            features
+          );
+        }) as typeof window.open;
+
+      window.setTimeout(
+        restoreWindowOpen,
+        3000
+      );
+
       fb.login(
         (
           response
@@ -823,9 +919,26 @@ export default function WhatsAppConfiguracaoPage() {
               .authResponse
               ?.code;
 
+          restoreWindowOpen();
+
           if (code) {
             authCodeRef.current =
               code;
+
+            const redirectUri =
+              oauthRedirectUriRef.current;
+
+            if (!redirectUri) {
+              setLoading(false);
+              setFinalizing(false);
+              setSuccess(null);
+
+              setError(
+                "A Meta retornou o código de autorização, mas o CRM não conseguiu capturar o redirect_uri gerado pelo JavaScript SDK. Tente novamente."
+              );
+
+              return;
+            }
 
             setAuthorizationReceived(
               true
@@ -841,6 +954,7 @@ export default function WhatsAppConfiguracaoPage() {
             if (sessionData) {
               void finalizarCadastro(
                 code,
+                redirectUri,
                 sessionData,
                 onboardingEventRef
                   .current
@@ -858,12 +972,17 @@ export default function WhatsAppConfiguracaoPage() {
                   const codeAtual =
                     authCodeRef.current;
 
+                  const redirectUriAtual =
+                    oauthRedirectUriRef.current;
+
                   if (
                     codeAtual &&
+                    redirectUriAtual &&
                     !finalizingRef.current
                   ) {
                     void finalizarCadastro(
                       codeAtual,
+                      redirectUriAtual,
                       sessionRef.current,
                       onboardingEventRef
                         .current
@@ -913,6 +1032,9 @@ export default function WhatsAppConfiguracaoPage() {
 
             featureType:
               "whatsapp_business_app_onboarding",
+
+            sessionInfoVersion:
+              "3",
           },
         }
       );
