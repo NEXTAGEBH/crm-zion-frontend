@@ -4,14 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
-/*
- * O FB.login() do JavaScript SDK não expõe um redirect_uri
- * customizável neste fluxo. Na troca do authorization code,
- * a Meta exige que o parâmetro corresponda ao usado pelo SDK.
- * Para o Embedded Signup via JSSDK, enviamos explicitamente
- * redirect_uri vazio, em vez de apontar para facebook.com.
- */
-const JSSDK_REDIRECT_URI = "";
 
 type CurrentUser = {
   id: string;
@@ -458,11 +450,6 @@ async function trocarCodigoPorToken(
   url.searchParams.set(
     "grant_type",
     "authorization_code"
-  );
-
-  url.searchParams.set(
-    "redirect_uri",
-    JSSDK_REDIRECT_URI
   );
 
   const response =
@@ -1076,6 +1063,12 @@ export async function POST(
         unknown
       >;
 
+    const accessTokenFromSdk =
+      typeof body.accessToken ===
+      "string"
+        ? body.accessToken.trim()
+        : "";
+
     const code =
       typeof body.code ===
       "string"
@@ -1114,11 +1107,14 @@ export async function POST(
             .trim()
         : "";
 
-    if (!code) {
+    if (
+      !accessTokenFromSdk &&
+      !code
+    ) {
       return NextResponse.json(
         {
           error:
-            "Código do Cadastro Incorporado não informado.",
+            "A Meta não retornou uma credencial válida para concluir o Cadastro Incorporado.",
         },
         {
           status: 400,
@@ -1164,21 +1160,42 @@ export async function POST(
     }
 
     /*
-     * Fazemos a troca imediatamente.
-     * O code é curto, de uso único,
-     * e nunca é salvo no banco.
+     * Configurações recentes do Facebook Login for Business
+     * podem devolver o accessToken diretamente no authResponse.
+     * Preferimos esse token quando ele existe e evitamos uma
+     * troca OAuth desnecessária, que também elimina problemas
+     * de redirect_uri do JavaScript SDK.
+     *
+     * O fluxo por code permanece apenas como compatibilidade
+     * para configurações que realmente retornem authorization code.
      */
-    const tokenResponse =
-      await trocarCodigoPorToken(
-        code,
-        appId,
-        appSecret,
-        graphVersion
-      );
+    let tokenResponse:
+      MetaTokenResponse;
 
-    const accessToken =
-      tokenResponse
-        .access_token as string;
+    let accessToken:
+      string;
+
+    if (accessTokenFromSdk) {
+      accessToken =
+        accessTokenFromSdk;
+
+      tokenResponse = {
+        access_token:
+          accessToken,
+      };
+    } else {
+      tokenResponse =
+        await trocarCodigoPorToken(
+          code,
+          appId,
+          appSecret,
+          graphVersion
+        );
+
+      accessToken =
+        tokenResponse
+          .access_token as string;
+    }
 
     const debugResponse =
       await depurarToken(

@@ -22,6 +22,7 @@ import { supabase } from "@/lib/supabaseClient";
 type FacebookLoginResponse = {
   authResponse?: {
     code?: string;
+    accessToken?: string;
   };
   status?: string;
 };
@@ -229,6 +230,11 @@ export default function WhatsAppConfiguracaoPage() {
   ] = useState(true);
 
   const authCodeRef =
+    useRef<
+      string | null
+    >(null);
+
+  const metaAccessTokenRef =
     useRef<
       string | null
     >(null);
@@ -471,7 +477,12 @@ export default function WhatsAppConfiguracaoPage() {
   const finalizarCadastro =
     useCallback(
       async (
-        code: string,
+        credential: {
+          accessToken?:
+            string | null;
+          code?:
+            string | null;
+        },
         sessionData:
           EmbeddedSignupData |
           null,
@@ -523,7 +534,15 @@ export default function WhatsAppConfiguracaoPage() {
 
                 body:
                   JSON.stringify({
-                    code,
+                    accessToken:
+                      credential
+                        .accessToken ||
+                      null,
+
+                    code:
+                      credential
+                        .code ||
+                      null,
 
                     wabaId:
                       sessionData
@@ -661,12 +680,21 @@ export default function WhatsAppConfiguracaoPage() {
 
           setError(null);
 
+          const accessToken =
+            metaAccessTokenRef.current;
+
           const code =
             authCodeRef.current;
 
-          if (code) {
+          if (
+            accessToken ||
+            code
+          ) {
             void finalizarCadastro(
-              code,
+              {
+                accessToken,
+                code,
+              },
               sessionData,
               data.event ||
                 null
@@ -759,6 +787,9 @@ export default function WhatsAppConfiguracaoPage() {
       authCodeRef.current =
         null;
 
+      metaAccessTokenRef.current =
+        null;
+
       sessionRef.current =
         null;
 
@@ -818,14 +849,27 @@ export default function WhatsAppConfiguracaoPage() {
         (
           response
         ) => {
+          const accessToken =
+            response
+              .authResponse
+              ?.accessToken;
+
           const code =
             response
               .authResponse
               ?.code;
 
-          if (code) {
+          if (
+            accessToken ||
+            code
+          ) {
+            metaAccessTokenRef.current =
+              accessToken ||
+              null;
+
             authCodeRef.current =
-              code;
+              code ||
+              null;
 
             setAuthorizationReceived(
               true
@@ -836,19 +880,27 @@ export default function WhatsAppConfiguracaoPage() {
             );
 
             /*
-             * Normalmente o postMessage FINISH
-             * chega praticamente junto do code.
-             * No Coexistence ele pode conter apenas
-             * o WABA. Se o postMessage não chegar,
-             * o backend ainda consegue descobrir
-             * os ativos concedidos pelo token.
+             * Não salvamos nem exibimos a credencial no navegador.
+             * Ela é enviada imediatamente ao backend por HTTPS.
+             * Se o SDK devolver accessToken, ele tem prioridade.
+             * O code fica apenas como compatibilidade.
              */
             const sessionData =
               sessionRef.current;
 
+            const credential = {
+              accessToken:
+                accessToken ||
+                null,
+
+              code:
+                code ||
+                null,
+            };
+
             if (sessionData) {
               void finalizarCadastro(
-                code,
+                credential,
                 sessionData,
                 onboardingEventRef
                   .current
@@ -867,7 +919,15 @@ export default function WhatsAppConfiguracaoPage() {
                     !finalizingRef.current
                   ) {
                     void finalizarCadastro(
-                      code,
+                      {
+                        accessToken:
+                          metaAccessTokenRef
+                            .current,
+
+                        code:
+                          authCodeRef
+                            .current,
+                      },
                       sessionRef.current,
                       onboardingEventRef
                         .current
@@ -896,12 +956,6 @@ export default function WhatsAppConfiguracaoPage() {
 
           auth_type:
             "rerequest",
-
-          response_type:
-            "code",
-
-          override_default_response_type:
-            true,
 
           extras: {
             setup: {},
